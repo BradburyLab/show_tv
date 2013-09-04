@@ -59,7 +59,7 @@ def main():
         # :TRICKY: так отлавливаем сообщение от segment.c вида "starts with packet stream"
         log_type = "debug"
         in_opts = "-i " + in_fname
-        emulate_live  = True # False # 
+        emulate_live  = False # True # 
         if emulate_live and IsTest:
             # эмулируем выдачу видео в реальном времени
             in_opts = "-re " + in_opts
@@ -303,14 +303,16 @@ def main():
         os.kill(cr.pid, signal.SIGTERM)
     
     def on_signal(signum, _ignored_):
-        print "Request to stop ..."
+        print(signum, _ignored_)
+        
+        print("Request to stop ...")
         # :TRICKY: вариант с ожиданием завершения оставшихся работ
         # есть на http://tornadogists.org/4643396/ , нам пока не нужен
 
         main.stop_streaming = True
         
         stop_lst = []
-        for cr in cr_dct.itervalues():
+        for cr in cr_dct.values():
             if cr.is_started:
                 kill_cr(cr)
                 stop_lst.append(cr.pid)
@@ -326,7 +328,7 @@ def main():
     def stop_inactives():
         for refname, cr in cr_dct.iteritems():
             if cr.is_started and refname not in activity_set:
-                print "Stopping inactive:", refname
+                print("Stopping inactive:", refname)
                 cr.stop_signal = True
                 kill_cr(cr)
                 
@@ -374,7 +376,7 @@ def get_channel_addr(req_channel):
     
     res = names_dct.get(req_channel)
     if res:
-       res = rn_dct[res]
+        res = rn_dct[res]
     return res
     
 if __name__ == "__main__":
@@ -382,4 +384,4 @@ if __name__ == "__main__":
         main()
         
     if False:
-        print get_channel_addr("Первый канал")
+        print(get_channel_addr("Первый канал"))

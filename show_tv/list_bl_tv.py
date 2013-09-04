@@ -112,7 +112,7 @@ if __name__ == "__main__":
     import get_url
     res, msg = get_url.test_inet()
     if not res:
-        print "No internet, test connection: ", msg
+        print("No internet, test connection: ", msg)
     else:
         import re
         pat = re.compile(r"^#EXT-X-STREAM-INF.+BANDWIDTH=(?P<bandwidth>\d+).*(?:\n|\r\n?)(?P<stream>.+)", re.MULTILINE)
@@ -129,7 +129,7 @@ if __name__ == "__main__":
             url = cnxt.row[hls_idx]
             
             if url.startswith("http://"):
-                print name, url
+                print(name, url)
                 try:
                     with contextlib.closing(get_url.get_url(url)) as pf:
                         txt = pf.read()
