@@ -39,26 +39,41 @@ def main():
         # не стартуем автоматом
         #start_chunking()
 
-    def chunk_fpath(fname, refname):
-        return o_p.join(out_dir, refname, fname)
-
     if IsTest:
         prefix_dir = os.path.expanduser("~/opt/bl/f451")
         out_dir = o_p.join(prefix_dir, 'tmp/out_dir')
     else:
         out_dir = "/home/ilil/show_tv/out_dir"
 
-    def chunker_cmd(refname):
+    def chunk_fpath(chunk_dir, *fname):
+        return o_p.join(out_dir, chunk_dir, *fname)
+
+    def remove_chunks(rng, cr):
+        for i in rng:
+            fname = chunk_fpath(cr.refname, chunk_name(i))
+            os.unlink(fname)
+            
+    def ready_chunks(chunk_range):
+        """ Кол-во дописанных до конца фрагментов """
+        return chunk_range.end - chunk_range.beg - 1
+    
+    def may_serve_pl(cnt):
+        return cnt >= 1
+
+    def channel_dir(chunk_dir):
+        return chunk_fpath(chunk_dir)
+    
+    def run_chunker(src_media_path, chunk_dir, on_new_chunk, on_stop_chunking):
+        o_p.force_makedirs(channel_dir(chunk_dir))
+        
         if IsTest:
             ffmpeg_bin = os.path.expanduser("~/opt/src/ffmpeg/git/ffmpeg/objs/inst/bin/ffmpeg")
-            in_fname = list_bl_tv.make_path("pervyj.ts") # o_p.join(prefix_dir, 'show_tv/pervyj.ts')
         else:
             ffmpeg_bin = "/home/ilil/show_tv/ffmpeg/objs/inst/bin/ffmpeg"
-            in_fname = rn_dct[refname]
             
         # :TRICKY: так отлавливаем сообщение от segment.c вида "starts with packet stream"
         log_type = "debug"
-        in_opts = "-i " + in_fname
+        in_opts = "-i " + src_media_path
         emulate_live  = False # True # 
         if emulate_live and IsTest:
             # эмулируем выдачу видео в реальном времени
@@ -69,46 +84,14 @@ def main():
             #cmd += " -segment_list %(out_dir)s/playlist.m3u8" % locals()
             pass
 
-        cmd += " %s" % chunk_fpath(chunk_tmpl, refname)
+        cmd += " %s" % chunk_fpath(chunk_dir, chunk_tmpl)
         #print(cmd)
-        return cmd
-
-    def remove_chunks(rng, cr):
-        for i in rng:
-            fname = chunk_fpath(chunk_name(i), cr.refname)
-            os.unlink(fname)
-            
-    def ready_chunks(chunk_range):
-        """ Кол-во дописанных до конца фрагментов """
-        return chunk_range.end - chunk_range.beg - 1
-    
-    def may_serve_pl(cnt):
-        return cnt >= 1
-
-    def channel_dir(refname):
-        return o_p.join(out_dir, refname)
-
-    main.stop_streaming = False
-    def start_chunking(chunk_range):
-        if main.stop_streaming:
-            return
-        
-        # инициализация
-        chunk_range.is_started = True
-        
-        chunk_range.beg = 0
-        chunk_range.end = 0
-        chunk_range.start_times = []
-
-        refname = chunk_range.refname
-        o_p.force_makedirs(channel_dir(refname))
         
         import tornado.process
         Subprocess = tornado.process.Subprocess
     
         STREAM = Subprocess.STREAM
-        ffmpeg_proc = Subprocess(chunker_cmd(refname), stdout=STREAM, stderr=STREAM, shell=True)
-        chunk_range.pid = ffmpeg_proc.pid
+        ffmpeg_proc = Subprocess(cmd, stdout=STREAM, stderr=STREAM, shell=True)
      
         import re
         segment_sign = re.compile(b"segment:'(.+)' starts with packet stream:.+pts_time:(?P<pt>[\d,\.]+)")
@@ -116,24 +99,8 @@ def main():
             m = segment_sign.search(line)
             if m:
                 #print("new segment:", line)
-                chunk_range.start_times.append(float(m.group("pt")))
-                chunk_range.end += 1
-
-                cnt = ready_chunks(chunk_range)
-                if may_serve_pl(cnt):
-                    hdls = chunk_range.on_first_chunk_handlers
-                    chunk_range.on_first_chunk_handlers = []
-                    for hdl in hdls:
-                        hdl()
-                
-                max_total = 72 # максимум столько секунд храним
-                max_cnt = int_ceil(float(max_total) / std_chunk_dur)
-                diff = cnt - max_cnt
-                if diff > 0:
-                    old_beg = chunk_range.beg
-                    chunk_range.beg += diff
-                    del chunk_range.start_times[:diff]
-                    remove_chunks(range(old_beg, chunk_range.beg), chunk_range)
+                chunk_dur = float(m.group("pt"))
+                on_new_chunk(chunk_dur)
     
         line_sep = re.compile(br"(\n|\r\n?).", re.M)
         class errdat:
@@ -185,6 +152,40 @@ def main():
             set_stop(False)
         ffmpeg_proc.set_exit_callback(on_proc_exit)
         
+        return ffmpeg_proc.pid
+
+    main.stop_streaming = False
+    def start_chunking(chunk_range):
+        if main.stop_streaming:
+            return
+        
+        # инициализация
+        chunk_range.is_started = True
+        
+        chunk_range.beg = 0
+        chunk_range.end = 0
+        chunk_range.start_times = []
+
+        def on_new_chunk(chunk_dur):
+            chunk_range.start_times.append(chunk_dur)
+            chunk_range.end += 1
+    
+            cnt = ready_chunks(chunk_range)
+            if may_serve_pl(cnt):
+                hdls = chunk_range.on_first_chunk_handlers
+                chunk_range.on_first_chunk_handlers = []
+                for hdl in hdls:
+                    hdl()
+            
+            max_total = 72 # максимум столько секунд храним
+            max_cnt = int_ceil(float(max_total) / std_chunk_dur)
+            diff = cnt - max_cnt
+            if diff > 0:
+                old_beg = chunk_range.beg
+                chunk_range.beg += diff
+                del chunk_range.start_times[:diff]
+                remove_chunks(range(old_beg, chunk_range.beg), chunk_range)
+     
         def on_stop_chunking():
             chunk_range.is_started = False
             remove_chunks(range(chunk_range.beg, chunk_range.end), chunk_range)
@@ -201,6 +202,13 @@ def main():
             else:
                 if may_restart:
                     start_chunking(chunk_range)
+                    
+        if IsTest:
+            src_media_path = list_bl_tv.make_path("pervyj.ts") # o_p.join(prefix_dir, 'show_tv/pervyj.ts')
+        else:
+            src_media_path = rn_dct[refname]
+        
+        chunk_range.pid = run_chunker(src_media_path, chunk_range.refname, on_new_chunk, on_stop_chunking)
     
     def written_chunks(chunk_range):
         return range(chunk_range.beg, chunk_range.end-1)
