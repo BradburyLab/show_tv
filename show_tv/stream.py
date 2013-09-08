@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 # coding: utf-8
 
 import os
@@ -303,8 +303,6 @@ def main():
         os.kill(cr.pid, signal.SIGTERM)
     
     def on_signal(signum, _ignored_):
-        print(signum, _ignored_)
-        
         print("Request to stop ...")
         # :TRICKY: вариант с ожиданием завершения оставшихся работ
         # есть на http://tornadogists.org/4643396/ , нам пока не нужен
@@ -345,7 +343,8 @@ def main():
     ioloop.start()
 
 def get_channels():
-    num = 2
+    # 1 - наилучшее качество, 3 - наихудшее
+    num = 1 # 2
     def mc_out(suffix):
         return "mc_%s_out_%s" % (num, suffix)
     req_clns = ["refname", mc_out("address"), mc_out("port")]
