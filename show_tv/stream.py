@@ -16,8 +16,10 @@ def int_ceil(float_):
 
 def main():
     rn_dct = get_channels()[0]
-    # в Bradbury обычно 12 секунд GOP
-    std_chunk_dur = 12
+    # в Bradbury обычно 3 секунду GOP, а фрагмент:
+    # - HLS: 9 секунд
+    # - HDS: 6 секунд
+    std_chunk_dur = 6
     # формат фрагментов
     num_sz = 8
     chunk_tmpl = "out%%0%sd.ts" % num_sz
@@ -332,7 +334,7 @@ def main():
         signal.signal(sig, on_signal)
 
     def stop_inactives():
-        for refname, cr in cr_dct.iteritems():
+        for refname, cr in cr_dct.items():
             if cr.is_started and refname not in activity_set:
                 print("Stopping inactive:", refname)
                 cr.stop_signal = True
