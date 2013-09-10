@@ -333,9 +333,19 @@ def main():
     for sig in [signal.SIGTERM, signal.SIGINT]:
         signal.signal(sig, on_signal)
 
+    #
+    # вещание по запросу
+    #
+    if IsTest:
+        stream_always_lst = ['pervyj']
+    else:
+        stream_always_lst = ['pervyj', 'rossia1', 'ntv', 'rossia24', 'peterburg5', 'rbktv']
+    for name in stream_always_lst:
+        start_chunking(cr_dct[name])
+        
     def stop_inactives():
         for refname, cr in cr_dct.items():
-            if cr.is_started and refname not in activity_set:
+            if cr.is_started and refname not in activity_set and refname not in stream_always_lst:
                 print("Stopping inactive:", refname)
                 cr.stop_signal = True
                 kill_cr(cr)
