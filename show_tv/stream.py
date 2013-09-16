@@ -208,7 +208,7 @@ def main():
         if IsTest:
             src_media_path = list_bl_tv.make_path("pervyj.ts") # o_p.join(prefix_dir, 'show_tv/pervyj.ts')
         else:
-            src_media_path = rn_dct[refname]
+            src_media_path = rn_dct[chunk_range.refname]
         
         chunk_range.pid = run_chunker(src_media_path, chunk_range.refname, on_new_chunk, on_stop_chunking)
     
@@ -339,7 +339,8 @@ def main():
     if IsTest:
         stream_always_lst = ['pervyj']
     else:
-        stream_always_lst = ['pervyj', 'rossia1', 'ntv', 'rossia24', 'peterburg5', 'rbktv']
+        #stream_always_lst = ['pervyj', 'rossia1', 'ntv', 'rossia24', 'peterburg5', 'rbktv']
+        stream_always_lst = ['pervyj']
     for name in stream_always_lst:
         start_chunking(cr_dct[name])
         
