@@ -14,6 +14,10 @@ PORT = 8910
 def int_ceil(float_):
     return int(math.ceil(float_))
 
+class StreamType:
+    HLS = 0
+    HDS = 1
+
 def main():
     rn_dct = get_channels()[0]
     # в Bradbury обычно 3 секунду GOP, а фрагмент:
