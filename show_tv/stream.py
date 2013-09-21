@@ -17,6 +17,21 @@ def int_ceil(float_):
 class StreamType:
     HLS = 0
     HDS = 1
+    
+# объект самого класса object минималистичен, поэтому не содержит
+# __dict__ (который и дает функционал атрибутов); а вот наследники
+# получают __dict__ по умолчанию, если только в их описании нет __slots__ - 
+# явного списка атрибутов, которые должен иметь класс
+class Struct(object):
+    pass
+
+def make_struct(**kwargs):
+    """ Сделать объект с атрибутами """
+    # вообще, для спец. случаев, требующих оптимизации по памяти, можно
+    # установить __slots__ равным kwargs.keys()
+    stct = Struct()
+    stct.__dict__.update(kwargs)
+    return stct
 
 def main():
     rn_dct = get_channels()[0]
@@ -30,20 +45,15 @@ def main():
     def chunk_name(i):
         return chunk_tmpl % i
 
-    def make_cr(rname):
-        class chunk_range:
-            is_started = False
-            on_first_chunk_handlers = []
-            refname = rname
-            
-            stop_signal = False
-        return chunk_range
-        
     cr_dct = {}
     for refname in rn_dct:
-        cr_dct[refname] = make_cr(refname)
-        # не стартуем автоматом
-        #start_chunking()
+        cr_dct[refname] = make_struct(
+            is_started = False,
+            on_first_chunk_handlers = [],
+            refname = refname,
+            
+            stop_signal = False
+        )
 
     if IsTest:
         prefix_dir = os.path.expanduser("~/opt/bl/f451")
@@ -51,25 +61,29 @@ def main():
     else:
         out_dir = "/home/ilil/show_tv/out_dir"
 
-    def chunk_fpath(chunk_dir, *fname):
+    def out_fpath(chunk_dir, *fname):
         return o_p.join(out_dir, chunk_dir, *fname)
 
     def remove_chunks(rng, cr):
         for i in rng:
-            fname = chunk_fpath(cr.refname, chunk_name(i))
+            fname = out_fpath(cr.refname, chunk_name(i))
             os.unlink(fname)
             
+    def ready_chk_end(chunk_range):
+        return chunk_range.end-1
     def ready_chunks(chunk_range):
         """ Кол-во дописанных до конца фрагментов """
-        return chunk_range.end - chunk_range.beg - 1
+        return ready_chk_end(chunk_range) - chunk_range.beg
+    def written_chunks(chunk_range):
+        return range(chunk_range.beg, ready_chk_end(chunk_range))
     
     def may_serve_pl(cnt):
-        return cnt >= 1
+        return cnt >= 2
 
     def channel_dir(chunk_dir):
-        return chunk_fpath(chunk_dir)
+        return out_fpath(chunk_dir)
     
-    def run_chunker(src_media_path, chunk_dir, on_new_chunk, on_stop_chunking):
+    def run_chunker(src_media_path, chunk_dir, on_new_chunk, on_stop_chunking, is_batch=False):
         o_p.force_makedirs(channel_dir(chunk_dir))
         
         if IsTest:
@@ -80,8 +94,8 @@ def main():
         # :TRICKY: так отлавливаем сообщение от segment.c вида "starts with packet stream"
         log_type = "debug"
         in_opts = "-i " + src_media_path
-        emulate_live  = False # True # 
-        if emulate_live and IsTest:
+        emulate_live  = True # False # 
+        if IsTest and emulate_live and not is_batch:
             # эмулируем выдачу видео в реальном времени
             in_opts = "-re " + in_opts
         bl_options = "-segment_time %s" % std_chunk_dur
@@ -90,7 +104,7 @@ def main():
             #cmd += " -segment_list %(out_dir)s/playlist.m3u8" % locals()
             pass
 
-        cmd += " %s" % chunk_fpath(chunk_dir, chunk_tmpl)
+        cmd += " %s" % out_fpath(chunk_dir, chunk_tmpl)
         #print(cmd)
         
         import tornado.process
@@ -160,6 +174,13 @@ def main():
         
         return ffmpeg_proc.pid
 
+    def test_src_fpath(fname):
+        return out_fpath(o_p.join('../test_src', fname))
+    
+    def test_media_path():
+        #return list_bl_tv.make_path("pervyj.ts")
+        return test_src_fpath("pervyj-720x406.ts")
+
     main.stop_streaming = False
     def start_chunking(chunk_range):
         if main.stop_streaming:
@@ -210,15 +231,16 @@ def main():
                     start_chunking(chunk_range)
                     
         if IsTest:
-            src_media_path = list_bl_tv.make_path("pervyj.ts") # o_p.join(prefix_dir, 'show_tv/pervyj.ts')
+            src_media_path = test_media_path()
         else:
             src_media_path = rn_dct[chunk_range.refname]
         
         chunk_range.pid = run_chunker(src_media_path, chunk_range.refname, on_new_chunk, on_stop_chunking)
     
-    def written_chunks(chunk_range):
-        return range(chunk_range.beg, chunk_range.end-1)
-    def chunk_dur(i, chunk_range):
+    #
+    # выдача
+    #
+    def chunk_duration(i, chunk_range):
         i -= chunk_range.beg
         st = chunk_range.start_times
         return st[i+1] - st[i]
@@ -235,41 +257,40 @@ def main():
         # EXT-X-TARGETDURATION - должен быть, и это
         # должен быть максимум
         max_dur = 0
+        chunk_lst = []
         for i in written_chunks(chunk_range):
-            max_dur = max(chunk_dur(i, chunk_range), max_dur)
+            dur = chunk_duration(i, chunk_range)
+            name = chunk_name(i)
+            
+            max_dur = max(dur, max_dur)
+            
+            # используем %f (6 знаков по умолчанию) вместо %s, чтобы на 
+            # '%s' % 0.0000001 не получать '1e-07'
+            chunk_lst.append("""#EXTINF:%(dur)f,
+%(name)s
+""" % locals())
+
         # по спеке это должно быть целое число, иначе не работает (IPad)
         max_dur = int_ceil(max_dur)
         
         # EXT-X-MEDIA-SEQUENCE - номер первого сегмента,
         # нужен для указания клиенту на то, что список живой,
         # т.е. его элементы будут добавляться/исчезать по FIFO
-        #
-        # если chunk_range не использовать здесь, то EvalFormat 
-        # его не найдет; неиспользуемые неглобальные функции - аналогично
-        beg = chunk_range.beg
         write("""#EXTM3U
 #EXT-X-VERSION:3
 #EXT-X-ALLOW-CACHE:NO
 #EXT-X-TARGETDURATION:%(max_dur)s
-#EXT-X-MEDIA-SEQUENCE:%(beg)s
+#EXT-X-MEDIA-SEQUENCE:%(chunk_range.beg)s
 """ % s_.EvalFormat())
                 
-        for i in written_chunks(chunk_range):
-            name = chunk_name(i)
-            # используем %f (6 знаков по умолчанию) вместо %s, чтобы на 
-            # '%s' % 0.0000001 не получать '1e-07'
-            write("""#EXTINF:%(chunk_dur(i, chunk_range))f,
-%(name)s
-""" % s_.EvalFormat())
+        for s in chunk_lst:
+            write(s)
             
         # а вот это для live не надо
         #write("#EXT-X-ENDLIST")
         
         hdl.finish()
     
-    #
-    # выдача
-    #
     activity_set = set()
     
     import tornado.web
@@ -277,33 +298,47 @@ def main():
     
     def raise_error(status):
         raise tornado.web.HTTPError(status)
-    class PLHandler(tornado.web.RequestHandler):
-        @tornado.web.asynchronous
-        def get(self, refname):
-            chunk_range = cr_dct.get(refname)
-            if not chunk_range:
-                raise_error(404)
+    def make_get_handler(match_pattern, get_handler):
+        class Handler(tornado.web.RequestHandler):
+            pass
+        
+        Handler.get = tornado.web.asynchronous(get_handler)
+        return match_pattern, Handler
+
+    def get_cr(refname):
+        chunk_range = cr_dct.get(refname)
+        if not chunk_range:
+            raise_error(404)
+        return chunk_range
+    
+    def force_chunking(chunk_range):
+        if not chunk_range.is_started:
+            start_chunking(chunk_range)
             
-            is_started = chunk_range.is_started
-            if not is_started:
-                start_chunking(chunk_range)
-                # например, из-за сигнала остановить сервер
-                if not chunk_range.is_started:
-                    raise_error(503)
-                
-            if is_started and may_serve_pl(ready_chunks(chunk_range)):
-                serve_pl(self, chunk_range)
-            else:
-                chunk_range.on_first_chunk_handlers.append(functools.partial(serve_pl, self, chunk_range))
-                
-            activity_set.add(chunk_range.refname)
+        return chunk_range.is_started
+    
+    def get_playlist(hdl, refname):
+        chunk_range = get_cr(refname)
+        if not force_chunking(chunk_range):
+            # например, из-за сигнала остановить сервер
+            raise_error(503)
+            
+        if may_serve_pl(ready_chunks(chunk_range)):
+            serve_pl(hdl, chunk_range)
+        else:
+            chunk_range.on_first_chunk_handlers.append(functools.partial(serve_pl, hdl, chunk_range))
+            
+        activity_set.add(chunk_range.refname)
 
     handlers = [
-        (r"/([-\w]+)/playlist.m3u8", PLHandler),
+        make_get_handler(r"/([-\w]+)/playlist.m3u8", get_playlist),
     ]
+    def make_static_handler(chunk_dir):
+        return r"/%s/(.*)" % chunk_dir, tornado.web.StaticFileHandler, {"path": channel_dir(chunk_dir)}
+        
     for refname in rn_dct:
         handlers.append(
-            (r"/%s/(.*)" % refname, tornado.web.StaticFileHandler, {"path": channel_dir(refname)}),
+            make_static_handler(refname),
         )
     
     application = tornado.web.Application(handlers)
