@@ -45,7 +45,7 @@ def main():
     # формат фрагментов
     num_sz = 8
     chunk_tmpl = "out%%0%sd.ts" % num_sz
-    def chunk_name(i):
+    def hls_chunk_name(i):
         return chunk_tmpl % i
 
     # используем namedtuple в качестве ключей, так как 
@@ -81,8 +81,15 @@ def main():
         return o_p.join(out_dir, chunk_dir, *fname)
 
     def remove_chunks(rng, cr):
+        r_t = cr.r_t
+        typ = r_t.typ
         for i in rng:
-            fname = out_fpath(cr.r_t.refname, chunk_name(i))
+            if typ == StreamType.HLS:
+                fname = hls_chunk_name(i)
+            elif typ == StreamType.HDS:
+                fname = hds_chunk_name(cr.frg_tbl, i)
+                 
+            fname = out_fpath(r_t.refname, fname)
             os.unlink(fname)
             
     def ready_chk_end(chunk_range):
@@ -135,8 +142,8 @@ def main():
             m = segment_sign.search(line)
             if m:
                 #print("new segment:", line)
-                chunk_dur = float(m.group("pt"))
-                on_new_chunk(chunk_dur)
+                chunk_ts = float(m.group("pt"))
+                on_new_chunk(chunk_ts)
     
         line_sep = re.compile(br"(\n|\r\n?).", re.M)
         class errdat:
@@ -207,10 +214,40 @@ def main():
         
         chunk_range.beg = 0
         chunk_range.end = 0
+        
+        # :TODO: переделать через полиморфизм
+        typ = chunk_range.r_t.typ
+        if typ == StreamType.HLS:
+            start_hls_chunking(chunk_range)
+        elif typ == StreamType.HDS:
+            start_hds_chunking(chunk_range)
+            
+    def do_stop_chunking(chunk_range):
+        chunk_range.is_started = False
+        remove_chunks(range(chunk_range.beg, chunk_range.end), chunk_range)
+
+        may_restart = not chunk_range.stop_signal
+        if chunk_range.stop_signal:
+            chunk_range.stop_signal = False
+
+        if main.stop_streaming:
+            pids = main.stop_pids
+            pids.discard(chunk_range.pid)
+            if not pids:
+                ioloop.stop()
+        else:
+            if may_restart:
+                start_chunking(chunk_range)
+            
+    #
+    # HLS
+    #
+        
+    def start_hls_chunking(chunk_range):
         chunk_range.start_times = []
 
-        def on_new_chunk(chunk_dur):
-            chunk_range.start_times.append(chunk_dur)
+        def on_new_chunk(chunk_ts):
+            chunk_range.start_times.append(chunk_ts)
             chunk_range.end += 1
     
             cnt = ready_chunks(chunk_range)
@@ -230,21 +267,7 @@ def main():
                 remove_chunks(range(old_beg, chunk_range.beg), chunk_range)
      
         def on_stop_chunking():
-            chunk_range.is_started = False
-            remove_chunks(range(chunk_range.beg, chunk_range.end), chunk_range)
-
-            may_restart = not chunk_range.stop_signal
-            if chunk_range.stop_signal:
-                chunk_range.stop_signal = False
-
-            if main.stop_streaming:
-                pids = main.stop_pids
-                pids.discard(chunk_range.pid)
-                if not pids:
-                    ioloop.stop()
-            else:
-                if may_restart:
-                    start_chunking(chunk_range)
+            do_stop_chunking(chunk_range)
 
         refname = chunk_range.r_t.refname
         if IsTest:
@@ -254,9 +277,6 @@ def main():
         
         chunk_range.pid = run_chunker(src_media_path, refname, on_new_chunk, on_stop_chunking)
     
-    #
-    # выдача
-    #
     def chunk_duration(i, chunk_range):
         i -= chunk_range.beg
         st = chunk_range.start_times
@@ -277,7 +297,7 @@ def main():
         chunk_lst = []
         for i in written_chunks(chunk_range):
             dur = chunk_duration(i, chunk_range)
-            name = chunk_name(i)
+            name = hls_chunk_name(i)
             
             max_dur = max(dur, max_dur)
             
@@ -307,6 +327,76 @@ def main():
         #write("#EXT-X-ENDLIST")
         
         hdl.finish()
+
+    #
+    # HDS
+    #
+    def hds_ts(chunk):
+        return chunk[1]
+    def hds_duration(chunk):
+        return chunk[2]
+
+    def hds_chunk_name(frg_tbl, i):
+        return "Seg1-Frag%s" % frg_tbl[i][0]
+
+    def start_hds_chunking(chunk_range):
+        chunk_range.pid = -1 # эмуляция сущeствования процесса
+        import abst
+        chunk_range.frg_tbl = frg_tbl = abst.parse_frg_tbl(abst.parse_bi_from_test_f4m())
+
+        # не принимаем пустые таблицы
+        assert frg_tbl
+        first_chunk = frg_tbl[0]
+        
+        import timeit
+        timer_func = timeit.default_timer
+        streaming_start = hds_ts(first_chunk) - timer_func()
+        
+        def on_new_chunk():
+            chunk_range.end += 1
+            done_chunk_idx = chunk_range.end-2
+            if done_chunk_idx >= 0:
+                # копируем готовый фрагмент
+                fname = "Seg1-Frag%s" % hds_chunk_name(frg_tbl, i)
+                src_fname = o_p.join(abst.get_frg_test_dir(), fname)
+                dst_fname = o_p.join(out_fpath(chunk_range.r_t.refname), fname)
+                import shutil
+                shutil.copyfile(src_fname, dst_fname)
+                
+            # :REFACTOR: on_first_chunk_handlers + удаление старых
+            cnt = ready_chunks(chunk_range)
+            if may_serve_pl(cnt):
+                hdls = chunk_range.on_first_chunk_handlers
+                chunk_range.on_first_chunk_handlers = []
+                for hdl in hdls:
+                    hdl()
+            
+            max_total = 72 # максимум столько секунд храним
+            #max_cnt = int_ceil(float(max_total) / std_chunk_dur)
+            max_cnt = int_ceil(float(max_total) / 3)
+            diff = cnt - max_cnt
+            if diff > 0:
+                old_beg = chunk_range.beg
+                chunk_range.beg += diff
+                #del chunk_range.start_times[:diff]
+                remove_chunks(range(old_beg, chunk_range.beg), chunk_range)
+
+            # эмуляция получения следующего фрагмента
+            if chunk_range.end + 1 < len(frg_tbl):
+                next_idx = chunk_range.end
+                frg = frg_tbl[next_idx]
+                
+                timeout = hds_ts(frg) - streaming_start - timer_func()
+                import datetime
+                ioloop.add_timeout(datetime.timedelta(seconds=timeout), on_new_chunk)
+            else:
+                do_stop_chunking(chunk_range)
+            
+        on_new_chunk()
+            
+    #
+    # выдача
+    #
     
     activity_set = set()
     
@@ -343,7 +433,7 @@ def main():
     def get_playlist(hdl, refname, fmt):
         typ = fmt2typ[fmt]
         
-        # :TODO!!!:
+        # :TEMP!!!:
         if typ == StreamType.HDS:
             import abst
             frg_tbl = abst.parse_frg_tbl(abst.parse_bi_from_test_f4m())
@@ -428,7 +518,7 @@ def main():
     def stop_inactives():
         for r_t, cr in cr_dct.items():
             if cr.is_started and r_t not in activity_set and r_t.refname not in stream_always_lst:
-                print("Stopping inactive:", refname)
+                print("Stopping inactive:", r_t)
                 cr.stop_signal = True
                 kill_cr(cr)
                 
