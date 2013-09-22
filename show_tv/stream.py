@@ -17,6 +17,9 @@ def int_ceil(float_):
 class StreamType:
     HLS = 0
     HDS = 1
+
+def enum_values(enum):
+    return tuple(v for k, v in vars(StreamType).items() if k.upper() == k)
     
 # объект самого класса object минималистичен, поэтому не содержит
 # __dict__ (который и дает функционал атрибутов); а вот наследники
@@ -45,12 +48,25 @@ def main():
     def chunk_name(i):
         return chunk_tmpl % i
 
+    # используем namedtuple в качестве ключей, так как 
+    # они порождены от tuple => имеют адекватное упорядочивание
+    import collections
+    RTClass = collections.namedtuple('RTClass', ['refname', 'typ'])
+    def r_t_key(refname, typ):
+        return RTClass(refname, typ)
+
+    def r_t_iter(iteratable):
+        for refname in iteratable:
+            for typ in enum_values(StreamType):
+                yield r_t_key(refname, typ)
+
     cr_dct = {}
-    for refname in rn_dct:
-        cr_dct[refname] = make_struct(
+    # :TODO: создавать по требованию (ленивая инициализация)
+    for r_t in r_t_iter(rn_dct):
+        cr_dct[r_t] = make_struct(
             is_started = False,
             on_first_chunk_handlers = [],
-            refname = refname,
+            r_t = r_t,
             
             stop_signal = False
         )
@@ -66,7 +82,7 @@ def main():
 
     def remove_chunks(rng, cr):
         for i in rng:
-            fname = out_fpath(cr.refname, chunk_name(i))
+            fname = out_fpath(cr.r_t.refname, chunk_name(i))
             os.unlink(fname)
             
     def ready_chk_end(chunk_range):
@@ -229,13 +245,14 @@ def main():
             else:
                 if may_restart:
                     start_chunking(chunk_range)
-                    
+
+        refname = chunk_range.r_t.refname
         if IsTest:
             src_media_path = test_media_path()
         else:
-            src_media_path = rn_dct[chunk_range.refname]
+            src_media_path = rn_dct[refname]
         
-        chunk_range.pid = run_chunker(src_media_path, chunk_range.refname, on_new_chunk, on_stop_chunking)
+        chunk_range.pid = run_chunker(src_media_path, refname, on_new_chunk, on_stop_chunking)
     
     #
     # выдача
@@ -305,8 +322,8 @@ def main():
         Handler.get = tornado.web.asynchronous(get_handler)
         return match_pattern, Handler
 
-    def get_cr(refname):
-        chunk_range = cr_dct.get(refname)
+    def get_cr(r_t):
+        chunk_range = cr_dct.get(r_t)
         if not chunk_range:
             raise_error(404)
         return chunk_range
@@ -316,9 +333,30 @@ def main():
             start_chunking(chunk_range)
             
         return chunk_range.is_started
+
+    # :TODO: поменять playlist.f4m на manifest.f4m
+    fmt2typ = {
+        "m3u8": StreamType.HLS,
+        "f4m":  StreamType.HDS,
+    }
     
-    def get_playlist(hdl, refname):
-        chunk_range = get_cr(refname)
+    def get_playlist(hdl, refname, fmt):
+        typ = fmt2typ[fmt]
+        
+        # :TODO!!!:
+        if typ == StreamType.HDS:
+            import abst
+            frg_tbl = abst.parse_frg_tbl(abst.parse_bi_from_test_f4m())
+            import gen_hds
+            is_live = False
+            f4m = gen_hds.gen_f4m(refname, gen_hds.gen_abst(frg_tbl, is_live), is_live)
+            
+            hdl.write(f4m)
+            hdl.finish()
+            return
+        
+        r_t = r_t_key(refname, typ)
+        chunk_range = get_cr(r_t)
         if not force_chunking(chunk_range):
             # например, из-за сигнала остановить сервер
             raise_error(503)
@@ -328,10 +366,10 @@ def main():
         else:
             chunk_range.on_first_chunk_handlers.append(functools.partial(serve_pl, hdl, chunk_range))
             
-        activity_set.add(chunk_range.refname)
+        activity_set.add(r_t)
 
     handlers = [
-        make_get_handler(r"/([-\w]+)/playlist.m3u8", get_playlist),
+        make_get_handler(r"/([-\w]+)/playlist.(m3u8|f4m)", get_playlist),
     ]
     def make_static_handler(chunk_dir):
         return r"/%s/(.*)" % chunk_dir, tornado.web.StaticFileHandler, {"path": channel_dir(chunk_dir)}
@@ -380,12 +418,16 @@ def main():
     else:
         #stream_always_lst = ['pervyj', 'rossia1', 'ntv', 'rossia24', 'peterburg5', 'rbktv']
         stream_always_lst = ['pervyj']
-    for name in stream_always_lst:
-        start_chunking(cr_dct[name])
+    for r_t in r_t_iter(stream_always_lst):
+        # :TEMP!!!:
+        if r_t.typ == StreamType.HDS:
+            continue
+        
+        start_chunking(cr_dct[r_t])
         
     def stop_inactives():
-        for refname, cr in cr_dct.items():
-            if cr.is_started and refname not in activity_set and refname not in stream_always_lst:
+        for r_t, cr in cr_dct.items():
+            if cr.is_started and r_t not in activity_set and r_t.refname not in stream_always_lst:
                 print("Stopping inactive:", refname)
                 cr.stop_signal = True
                 kill_cr(cr)
