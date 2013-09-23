@@ -231,9 +231,9 @@ def main():
             chunk_range.stop_signal = False
 
         if main.stop_streaming:
-            pids = main.stop_pids
-            pids.discard(chunk_range.pid)
-            if not pids:
+            stop_lst = main.stop_lst
+            stop_lst.discard(chunk_range.r_t)
+            if not stop_lst:
                 ioloop.stop()
         else:
             if may_restart:
@@ -282,7 +282,7 @@ def main():
         st = chunk_range.start_times
         return st[i+1] - st[i]
 
-    def serve_pl(hdl, chunk_range):
+    def serve_hls_pl(hdl, chunk_range):
         # :TRICKY: по умолчанию tornado выставляет
         # "text/html; charset=UTF-8", и вроде как по 
         # документации HLS, http://tools.ietf.org/html/draft-pantos-http-live-streaming-08 ,
@@ -382,17 +382,24 @@ def main():
                 remove_chunks(range(old_beg, chunk_range.beg), chunk_range)
 
             # эмуляция получения следующего фрагмента
-            if chunk_range.end + 1 < len(frg_tbl):
+            if chunk_range.stop_signal or (chunk_range.end >= len(frg_tbl) - 1):
+                do_stop_chunking(chunk_range)
+            else:
                 next_idx = chunk_range.end
                 frg = frg_tbl[next_idx]
                 
                 timeout = hds_ts(frg) - streaming_start - timer_func()
                 import datetime
                 ioloop.add_timeout(datetime.timedelta(seconds=timeout), on_new_chunk)
-            else:
-                do_stop_chunking(chunk_range)
             
         on_new_chunk()
+        
+    def serve_hds_pl(hdl, chunk_range):
+        hdl.set_header("Content-Type", "application/vnd.apple.mpegurl")
+        
+        write = hdl.write
+        
+        hdl.finish()
             
     #
     # выдача
@@ -426,8 +433,8 @@ def main():
 
     # :TODO: поменять playlist.f4m на manifest.f4m
     fmt2typ = {
-        "m3u8": StreamType.HLS,
-        "f4m":  StreamType.HDS,
+        "playlist.m3u8": StreamType.HLS,
+        "manifest.f4m":  StreamType.HDS,
     }
     
     def get_playlist(hdl, refname, fmt):
@@ -450,7 +457,11 @@ def main():
         if not force_chunking(chunk_range):
             # например, из-за сигнала остановить сервер
             raise_error(503)
-            
+
+        serve_pl = {
+            StreamType.HLS: serve_hls_pl,
+            StreamType.HDS: serve_hds_pl,
+        }[typ]
         if may_serve_pl(ready_chunks(chunk_range)):
             serve_pl(hdl, chunk_range)
         else:
@@ -459,7 +470,7 @@ def main():
         activity_set.add(r_t)
 
     handlers = [
-        make_get_handler(r"/([-\w]+)/playlist.(m3u8|f4m)", get_playlist),
+        make_get_handler(r"/([-\w]+)/(playlist.m3u8|manifest.f4m)", get_playlist),
     ]
     def make_static_handler(chunk_dir):
         return r"/%s/(.*)" % chunk_dir, tornado.web.StaticFileHandler, {"path": channel_dir(chunk_dir)}
@@ -477,7 +488,12 @@ def main():
     import signal
 
     def kill_cr(cr):
-        os.kill(cr.pid, signal.SIGTERM)
+        # HDS пока не порождает процесс, так что 
+        # stop_signal ему нужен всегда
+        cr.stop_signal = True
+        
+        if cr.r_t.typ == StreamType.HLS:
+            os.kill(cr.pid, signal.SIGTERM)
     
     def on_signal(signum, _ignored_):
         print("Request to stop ...")
@@ -490,10 +506,10 @@ def main():
         for cr in cr_dct.values():
             if cr.is_started:
                 kill_cr(cr)
-                stop_lst.append(cr.pid)
+                stop_lst.append(cr.r_t)
         
         if stop_lst:
-            main.stop_pids = set(stop_lst)
+            main.stop_lst = set(stop_lst)
         else:
             ioloop.stop()
         
@@ -519,7 +535,6 @@ def main():
         for r_t, cr in cr_dct.items():
             if cr.is_started and r_t not in activity_set and r_t.refname not in stream_always_lst:
                 print("Stopping inactive:", r_t)
-                cr.stop_signal = True
                 kill_cr(cr)
                 
         activity_set.clear()
