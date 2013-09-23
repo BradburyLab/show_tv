@@ -37,6 +37,12 @@ def make_struct(**kwargs):
     return stct
 
 def main():
+    if IsTest:
+        # для Tornado, чтоб на каждый запрос отчитывался
+        import logging
+        logger = logging.getLogger()
+        logger.setLevel(logging.INFO)
+    
     rn_dct = get_channels()[0]
     # в Bradbury обычно 3 секунду GOP, а фрагмент:
     # - HLS: 9 секунд
@@ -100,11 +106,24 @@ def main():
     def written_chunks(chunk_range):
         return range(chunk_range.beg, ready_chk_end(chunk_range))
     
-    def may_serve_pl(cnt):
-        return cnt >= 2
+    def may_serve_pl(chunk_range):
+        # :TEMP: везде перейти на std_chunk_dur
+        this_chunk_dur = {
+            StreamType.HLS: std_chunk_dur,
+            StreamType.HDS: 3,
+        }[chunk_range.r_t.typ] # :REFACTOR:
+        
+        min_total = 12 # максимум столько секунд храним
+        min_cnt = int_ceil(float(min_total) / this_chunk_dur) # :REFACTOR:
+        
+        return ready_chunks(chunk_range) >= min_cnt
 
     def channel_dir(chunk_dir):
         return out_fpath(chunk_dir)
+    
+    EmulateLive  = True # False # 
+    def emulate_live():
+        return IsTest and EmulateLive
     
     def run_chunker(src_media_path, chunk_dir, on_new_chunk, on_stop_chunking, is_batch=False):
         o_p.force_makedirs(channel_dir(chunk_dir))
@@ -117,8 +136,7 @@ def main():
         # :TRICKY: так отлавливаем сообщение от segment.c вида "starts with packet stream"
         log_type = "debug"
         in_opts = "-i " + src_media_path
-        emulate_live  = True # False # 
-        if IsTest and emulate_live and not is_batch:
+        if emulate_live() and not is_batch:
             # эмулируем выдачу видео в реальном времени
             in_opts = "-re " + in_opts
         bl_options = "-segment_time %s" % std_chunk_dur
@@ -250,8 +268,7 @@ def main():
             chunk_range.start_times.append(chunk_ts)
             chunk_range.end += 1
     
-            cnt = ready_chunks(chunk_range)
-            if may_serve_pl(cnt):
+            if may_serve_pl(chunk_range):
                 hdls = chunk_range.on_first_chunk_handlers
                 chunk_range.on_first_chunk_handlers = []
                 for hdl in hdls:
@@ -259,7 +276,7 @@ def main():
             
             max_total = 72 # максимум столько секунд храним
             max_cnt = int_ceil(float(max_total) / std_chunk_dur)
-            diff = cnt - max_cnt
+            diff = ready_chunks(chunk_range) - max_cnt
             if diff > 0:
                 old_beg = chunk_range.beg
                 chunk_range.beg += diff
@@ -340,7 +357,7 @@ def main():
         return "Seg1-Frag%s" % frg_tbl[i][0]
 
     def start_hds_chunking(chunk_range):
-        chunk_range.pid = -1 # эмуляция сущeствования процесса
+        #chunk_range.pid = -1 # эмуляция сущeствования процесса
         import abst
         chunk_range.frg_tbl = frg_tbl = abst.parse_frg_tbl(abst.parse_bi_from_test_f4m())
 
@@ -354,18 +371,18 @@ def main():
         
         def on_new_chunk():
             chunk_range.end += 1
-            done_chunk_idx = chunk_range.end-2
-            if done_chunk_idx >= 0:
-                # копируем готовый фрагмент
-                fname = "Seg1-Frag%s" % hds_chunk_name(frg_tbl, i)
-                src_fname = o_p.join(abst.get_frg_test_dir(), fname)
-                dst_fname = o_p.join(out_fpath(chunk_range.r_t.refname), fname)
-                import shutil
-                shutil.copyfile(src_fname, dst_fname)
+
+            # копируем готовый фрагмент
+            # (заранее, хоть он пока и "не готов")
+            done_chunk_idx = chunk_range.end-1
+            fname = hds_chunk_name(frg_tbl, done_chunk_idx)
+            src_fname = o_p.join(abst.get_frg_test_dir(), fname)
+            dst_fname = o_p.join(out_fpath(chunk_range.r_t.refname), fname)
+            import shutil
+            shutil.copyfile(src_fname, dst_fname)
                 
             # :REFACTOR: on_first_chunk_handlers + удаление старых
-            cnt = ready_chunks(chunk_range)
-            if may_serve_pl(cnt):
+            if may_serve_pl(chunk_range):
                 hdls = chunk_range.on_first_chunk_handlers
                 chunk_range.on_first_chunk_handlers = []
                 for hdl in hdls:
@@ -374,7 +391,7 @@ def main():
             max_total = 72 # максимум столько секунд храним
             #max_cnt = int_ceil(float(max_total) / std_chunk_dur)
             max_cnt = int_ceil(float(max_total) / 3)
-            diff = cnt - max_cnt
+            diff = ready_chunks(chunk_range) - max_cnt
             if diff > 0:
                 old_beg = chunk_range.beg
                 chunk_range.beg += diff
@@ -382,23 +399,45 @@ def main():
                 remove_chunks(range(old_beg, chunk_range.beg), chunk_range)
 
             # эмуляция получения следующего фрагмента
-            if chunk_range.stop_signal or (chunk_range.end >= len(frg_tbl) - 1):
+            if chunk_range.stop_signal or (chunk_range.end >= len(frg_tbl)):
                 do_stop_chunking(chunk_range)
             else:
                 next_idx = chunk_range.end
                 frg = frg_tbl[next_idx]
-                
-                timeout = hds_ts(frg) - streaming_start - timer_func()
-                import datetime
-                ioloop.add_timeout(datetime.timedelta(seconds=timeout), on_new_chunk)
+
+                if emulate_live():
+                    timeout = hds_ts(frg) - streaming_start - timer_func()
+                    import datetime
+                    ioloop.add_timeout(datetime.timedelta(seconds=timeout), on_new_chunk)
+                else:
+                    ioloop.add_callback(on_new_chunk)
             
         on_new_chunk()
         
+    import gen_hds
     def serve_hds_pl(hdl, chunk_range):
-        hdl.set_header("Content-Type", "application/vnd.apple.mpegurl")
+        # согласно FlashMediaManifestFileFormatSpecification.pdf
+        hdl.set_header("Content-Type", "application/f4m+xml")
         
-        write = hdl.write
+        # судя по всему, для live нужно ставить эти заголовки, иначе плейер
+        # решит, что список не изменяется (так делает 1tv (не всегда) и wowza)
+        no_cache = [
+            ('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0'),
+            ("Pragma",        "no-cache"),
+        ]
+        for header in no_cache:
+            hdl.set_header(*header)
+            
+        # :TRICKY: 1tv ставит еще Expires, Last-Modified, Vary, Accept-Ranges,
+        # Age, но полагаю, что это к делу не относится (OSMFу все равно)
         
+        lst = chunk_range.frg_tbl[chunk_range.beg:ready_chk_end(chunk_range)]
+        # :REFACTOR:
+        refname = chunk_range.r_t.refname
+        is_live = True
+        f4m = gen_hds.gen_f4m(refname, gen_hds.gen_abst(lst, is_live), is_live)
+        
+        hdl.write(f4m)
         hdl.finish()
             
     #
@@ -412,11 +451,11 @@ def main():
     
     def raise_error(status):
         raise tornado.web.HTTPError(status)
-    def make_get_handler(match_pattern, get_handler):
+    def make_get_handler(match_pattern, get_handler, is_async=True):
         class Handler(tornado.web.RequestHandler):
             pass
         
-        Handler.get = tornado.web.asynchronous(get_handler)
+        Handler.get = tornado.web.asynchronous(get_handler) if is_async else get_handler
         return match_pattern, Handler
 
     def get_cr(r_t):
@@ -440,18 +479,6 @@ def main():
     def get_playlist(hdl, refname, fmt):
         typ = fmt2typ[fmt]
         
-        # :TEMP!!!:
-        if typ == StreamType.HDS:
-            import abst
-            frg_tbl = abst.parse_frg_tbl(abst.parse_bi_from_test_f4m())
-            import gen_hds
-            is_live = False
-            f4m = gen_hds.gen_f4m(refname, gen_hds.gen_abst(frg_tbl, is_live), is_live)
-            
-            hdl.write(f4m)
-            hdl.finish()
-            return
-        
         r_t = r_t_key(refname, typ)
         chunk_range = get_cr(r_t)
         if not force_chunking(chunk_range):
@@ -462,7 +489,7 @@ def main():
             StreamType.HLS: serve_hls_pl,
             StreamType.HDS: serve_hds_pl,
         }[typ]
-        if may_serve_pl(ready_chunks(chunk_range)):
+        if may_serve_pl(chunk_range):
             serve_pl(hdl, chunk_range)
         else:
             chunk_range.on_first_chunk_handlers.append(functools.partial(serve_pl, hdl, chunk_range))
@@ -479,6 +506,11 @@ def main():
         handlers.append(
             make_static_handler(refname),
         )
+    
+    # всеразрешающий crossdomain.xml для HDS
+    def get_cd_xml(hdl):
+        hdl.write(gen_hds.least_restrictive_cd_xml())
+    handlers.append(make_get_handler(r"/crossdomain.xml", get_cd_xml, False))
     
     application = tornado.web.Application(handlers)
     application.listen(PORT)
@@ -525,10 +557,6 @@ def main():
         #stream_always_lst = ['pervyj', 'rossia1', 'ntv', 'rossia24', 'peterburg5', 'rbktv']
         stream_always_lst = ['pervyj']
     for r_t in r_t_iter(stream_always_lst):
-        # :TEMP!!!:
-        if r_t.typ == StreamType.HDS:
-            continue
-        
         start_chunking(cr_dct[r_t])
         
     def stop_inactives():
