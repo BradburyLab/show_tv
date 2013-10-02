@@ -15,8 +15,47 @@ import tornado.web
 import tornado.ioloop
 IOLoop = tornado.ioloop.IOLoop.instance()
 
-import getpass
-IsTest = getpass.getuser() in ["muravyev", "ilya", "vany"]
+import argparse
+# в модуле argparse уже есть "rock solid"-реализация
+# структуры, поэтому используем ее
+USE_NAMESPACE = True
+if USE_NAMESPACE:
+    def make_struct(**kwargs):
+        return argparse.Namespace(**kwargs)
+else:
+    # объект самого класса object минималистичен, поэтому не содержит
+    # __dict__ (который и дает функционал атрибутов); а вот наследники
+    # получают __dict__ по умолчанию, если только в их описании нет __slots__ - 
+    # явного списка атрибутов, которые должен иметь класс
+    class Struct(object):
+        pass
+    
+    def make_struct(**kwargs):
+        """ Сделать объект с атрибутами """
+        # вообще, для спец. случаев, требующих оптимизации по памяти, можно
+        # установить __slots__ равным kwargs.keys()
+        stct = Struct()
+        stct.__dict__.update(kwargs)
+        return stct
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-e", "--environment", required=True)
+    
+    env_name = parser.parse_args().environment
+    #print(env_name)
+    fpath = o_p.join(os.path.dirname(__file__), "config", env_name + ".py")
+    with open(fpath) as f:
+        txt = f.read()
+    res = {}
+    exec(txt, {}, res)
+    return make_struct(**res)
+
+# :TRICKY: окружение нужно в самом начале, поэтому -
+environment = parse_args()
+#import getpass
+#is_test = getpass.getuser() in ["muravyev", "ilya", "vany"]
+is_test = environment.is_test
 
 PORT = 8910
 
@@ -30,21 +69,6 @@ class StreamType:
 def enum_values(enum):
     return tuple(v for k, v in vars(StreamType).items() if k.upper() == k)
     
-# объект самого класса object минималистичен, поэтому не содержит
-# __dict__ (который и дает функционал атрибутов); а вот наследники
-# получают __dict__ по умолчанию, если только в их описании нет __slots__ - 
-# явного списка атрибутов, которые должен иметь класс
-class Struct(object):
-    pass
-
-def make_struct(**kwargs):
-    """ Сделать объект с атрибутами """
-    # вообще, для спец. случаев, требующих оптимизации по памяти, можно
-    # установить __slots__ равным kwargs.keys()
-    stct = Struct()
-    stct.__dict__.update(kwargs)
-    return stct
-
 # используем namedtuple в качестве ключей, так как 
 # они порождены от tuple => имеют адекватное упорядочивание
 import collections
@@ -69,12 +93,7 @@ chunk_tmpl = "out%%0%sd.ts" % NUM_FORMAT_SIZE
 def hls_chunk_name(i):
     return chunk_tmpl % i
 
-if IsTest:
-    # prefix_dir = os.path.expanduser("~/opt/bl/f451")
-    prefix_dir = "/vagrant/f451"
-    OUT_DIR = o_p.join(prefix_dir, 'tmp/out_dir')
-else:
-    OUT_DIR = "/home/ilil/show_tv/out_dir"
+OUT_DIR = environment.out_dir
 
 def out_fpath(chunk_dir, *fname):
     return o_p.join(OUT_DIR, chunk_dir, *fname)
@@ -114,19 +133,14 @@ def may_serve_pl(chunk_range):
 def channel_dir(chunk_dir):
     return out_fpath(chunk_dir)
 
-EmulateLive = True # False # 
 def emulate_live():
-    return IsTest and EmulateLive
+    return is_test and getattr(environment, "emulate_live", True)
 
 def run_chunker(src_media_path, chunk_dir, on_new_chunk, on_stop_chunking, is_batch=False):
     o_p.force_makedirs(channel_dir(chunk_dir))
     
-    if IsTest:
-        # ffmpeg_bin = os.path.expanduser("~/opt/src/ffmpeg/git/ffmpeg/objs/inst/bin/ffmpeg")
-        ffmpeg_bin = "/home/vany/ffmpeg/objs/inst/bin/ffmpeg"
-    else:
-        ffmpeg_bin = "/home/ilil/show_tv/ffmpeg/objs/inst/bin/ffmpeg"
-        
+    ffmpeg_bin = environment.ffmpeg_bin
+    
     # :TRICKY: так отлавливаем сообщение от segment.c вида "starts with packet stream"
     log_type = "debug"
     in_opts = "-i " + src_media_path
@@ -135,7 +149,7 @@ def run_chunker(src_media_path, chunk_dir, on_new_chunk, on_stop_chunking, is_ba
         in_opts = "-re " + in_opts
     bl_options = "-segment_time %s" % std_chunk_dur
     cmd = "%(ffmpeg_bin)s -v %(log_type)s %(in_opts)s -map 0 -codec copy -f ssegment %(bl_options)s" % locals()
-    if IsTest:
+    if is_test:
         #cmd += " -segment_list %(out_dir)s/playlist.m3u8" % locals()
         pass
 
@@ -282,7 +296,7 @@ def start_hls_chunking(chunk_range):
         do_stop_chunking(chunk_range)
 
     refname = chunk_range.r_t.refname
-    if IsTest:
+    if is_test:
         src_media_path = test_media_path()
     else:
         src_media_path = RefnameDict[refname]
@@ -564,7 +578,7 @@ def on_signal(signum, _ignored_):
 # вещание по запросу
 #
 
-if IsTest:
+if is_test:
     stream_always_lst = ['pervyj']
 else:
     #stream_always_lst = ['pervyj', 'rossia1', 'ntv', 'rossia24', 'peterburg5', 'rbktv']
@@ -585,13 +599,16 @@ def set_stop_timer():
     IOLoop.add_timeout(period, stop_inactives)
 
 def main():
-    if IsTest:
+    if is_test:
         # для Tornado, чтоб на каждый запрос отчитывался
         logger = logging.getLogger()
         logger.setLevel(logging.INFO)
         
-    # for r_t in r_t_iter(stream_always_lst):
-    #     start_chunking(ChunkRangeDict[r_t])
+    for r_t in r_t_iter(stream_always_lst):
+        # :TODO: по умолчанию HDS пока не готово
+        use_hds = getattr(environment, "use_hds", False)
+        if use_hds or (r_t.typ != StreamType.HDS):
+            start_chunking(ChunkRangeDict[r_t])
              
     for sig in [signal.SIGTERM, signal.SIGINT]:
         signal.signal(sig, on_signal)
