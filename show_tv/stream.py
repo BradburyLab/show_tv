@@ -16,7 +16,7 @@ import tornado.ioloop
 IOLoop = tornado.ioloop.IOLoop.instance()
 
 import getpass
-IsTest = getpass.getuser() in ["muravyev", "ilya"]
+IsTest = getpass.getuser() in ["muravyev", "ilya", "vany"]
 
 PORT = 8910
 
@@ -70,7 +70,8 @@ def hls_chunk_name(i):
     return chunk_tmpl % i
 
 if IsTest:
-    prefix_dir = os.path.expanduser("~/opt/bl/f451")
+    # prefix_dir = os.path.expanduser("~/opt/bl/f451")
+    prefix_dir = "/vagrant/f451"
     OUT_DIR = o_p.join(prefix_dir, 'tmp/out_dir')
 else:
     OUT_DIR = "/home/ilil/show_tv/out_dir"
@@ -121,7 +122,8 @@ def run_chunker(src_media_path, chunk_dir, on_new_chunk, on_stop_chunking, is_ba
     o_p.force_makedirs(channel_dir(chunk_dir))
     
     if IsTest:
-        ffmpeg_bin = os.path.expanduser("~/opt/src/ffmpeg/git/ffmpeg/objs/inst/bin/ffmpeg")
+        # ffmpeg_bin = os.path.expanduser("~/opt/src/ffmpeg/git/ffmpeg/objs/inst/bin/ffmpeg")
+        ffmpeg_bin = "/home/vany/ffmpeg/objs/inst/bin/ffmpeg"
     else:
         ffmpeg_bin = "/home/ilil/show_tv/ffmpeg/objs/inst/bin/ffmpeg"
         
@@ -588,8 +590,8 @@ def main():
         logger = logging.getLogger()
         logger.setLevel(logging.INFO)
         
-    for r_t in r_t_iter(stream_always_lst):
-        start_chunking(ChunkRangeDict[r_t])
+    # for r_t in r_t_iter(stream_always_lst):
+    #     start_chunking(ChunkRangeDict[r_t])
              
     for sig in [signal.SIGTERM, signal.SIGINT]:
         signal.signal(sig, on_signal)

@@ -1,0 +1,14 @@
+*~
+*-
+*.bak
+*.pyc
+#*.*#
+doc/build
+451
+m3u8
+dvb
+
+dvr/dvr
+dvr/.idea
+
+tmp

@@ -11,7 +11,8 @@ if __name__ == '__main__':
         src_dir = "/home/ilya/opt/src/ffmpeg/git/libav"
         add_opts = ""
     else:
-        src_dir = "/home/ilil/show_tv/ffmpeg"
+        # src_dir = "/home/ilil/show_tv/ffmpeg"
+        src_dir = "/home/vany/ffmpeg"
         add_opts = "--disable-stripping"
     bld_dir = o_p.join(src_dir, "objs")
 

@@ -9,7 +9,7 @@ class ExitException(Exception):
         self.retcode = retcode
 
 def raise_exit(retcode=1, err_msg="Error"):
-    print err_msg
+    print(err_msg)
     raise ExitException(retcode)
 
 def re_if_not(res, err_msg):
