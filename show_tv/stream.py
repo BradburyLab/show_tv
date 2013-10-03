@@ -65,6 +65,7 @@ is_test = environment.is_test
 PORT = 8910
 
 def int_ceil(float_):
+    """ Округлить float в больщую сторону """
     return int(math.ceil(float_))
 
 class StreamType:
@@ -96,11 +97,13 @@ std_chunk_dur = 6
 NUM_FORMAT_SIZE = 8
 chunk_tmpl = "out%%0%sd.ts" % NUM_FORMAT_SIZE
 def hls_chunk_name(i):
+    """ Имя i-го фрагмента/чанка """
     return chunk_tmpl % i
 
 OUT_DIR = environment.out_dir
 
 def out_fpath(chunk_dir, *fname):
+    """ Вернуть полный путь до файла в OUT_DIR """
     return o_p.join(OUT_DIR, chunk_dir, *fname)
 
 def remove_chunks(rng, cr):
@@ -116,14 +119,17 @@ def remove_chunks(rng, cr):
         os.unlink(fname)
         
 def ready_chk_end(chunk_range):
+    """ Конец списка готовых, полностью записанных фрагментов """
     return chunk_range.end-1
 def ready_chunks(chunk_range):
     """ Кол-во дописанных до конца фрагментов """
     return ready_chk_end(chunk_range) - chunk_range.beg
 def written_chunks(chunk_range):
+    """ Range готовых чанков """
     return range(chunk_range.beg, ready_chk_end(chunk_range))
 
 def may_serve_pl(chunk_range):
+    """ Можно ли вещать канал = достаточно ли чанков для выдачи в плейлисте """
     # :TEMP: везде перейти на std_chunk_dur
     this_chunk_dur = {
         StreamType.HLS: std_chunk_dur,
@@ -142,6 +148,11 @@ def emulate_live():
     return is_test and getattr(environment, "emulate_live", True)
 
 def run_chunker(src_media_path, chunk_dir, on_new_chunk, on_stop_chunking, is_batch=False):
+    """ Запустить ffmpeg для фрагментирования файла/исходника src_media_path для
+        вещания канала chunk_dir; 
+        - on_new_chunk - что делать в момент начала создания нового фрагмента
+        - on_stop_chunking - что делать, если ffmpeg закончил работу
+        - is_batch - не эмулировать вещание, только для VOD-файлов """
     o_p.force_makedirs(channel_dir(chunk_dir))
     
     ffmpeg_bin = environment.ffmpeg_bin
@@ -237,6 +248,8 @@ Globals = make_struct(
 )
 
 def start_chunking(chunk_range):
+    """ Запустить процесс вещания канала chunk_range.r_t.refname c типом
+        вещания chunk_range.r_t.typ (HLS или HDS) """
     if Globals.stop_streaming:
         return
     
@@ -254,6 +267,8 @@ def start_chunking(chunk_range):
         start_hds_chunking(chunk_range)
         
 def do_stop_chunking(chunk_range):
+    """ Функция, которую нужно выполнить по окончанию вещания (когда закончил
+        работу chunker=ffmpeg """
     chunk_range.is_started = False
     remove_chunks(range(chunk_range.beg, chunk_range.end), chunk_range)
 
@@ -308,11 +323,14 @@ def start_hls_chunking(chunk_range):
     chunk_range.pid = run_chunker(src_media_path, refname, on_new_chunk, on_stop_chunking)
 
 def chunk_duration(i, chunk_range):
+    """ Длительность фрагмента в секундах, float """
     i -= chunk_range.beg
     st = chunk_range.start_times
     return st[i+1] - st[i]
 
 def serve_hls_pl(hdl, chunk_range):
+    """ Выдача плейлиста HLS, .m3u8; 
+        type(hdl) == tornado.web.RequestHandler """
     # :TRICKY: по умолчанию tornado выставляет
     # "text/html; charset=UTF-8", и вроде как по 
     # документации HLS, http://tools.ietf.org/html/draft-pantos-http-live-streaming-08 ,
@@ -458,6 +476,7 @@ def serve_hds_pl(hdl, chunk_range):
 #
 
 def get_channels():
+    """ Прочитать информацию о мультикаст-каналах Bradbury из tv_bl.csv"""
     # 1 - наилучшее качество, 3 - наихудшее
     num = 1 # 2
     def mc_out(suffix):
@@ -507,6 +526,8 @@ ActivitySet = set()
 def raise_error(status):
     raise tornado.web.HTTPError(status)
 def make_get_handler(match_pattern, get_handler, is_async=True):
+    """ Альтернатива созданию торнадовского обработчика: get_handler - обработка
+        GET-запроса """
     class Handler(tornado.web.RequestHandler):
         pass
     
@@ -520,6 +541,7 @@ def get_cr(r_t):
     return chunk_range
 
 def force_chunking(chunk_range):
+    """ Начать вещание канала по требованию """
     if not chunk_range.is_started:
         start_chunking(chunk_range)
         
@@ -531,6 +553,7 @@ Fmt2Typ = {
 }
 
 def get_playlist(hdl, refname, fmt):
+    """ Обработчик выдачи плейлистов playlist.m3u8 и manifest.f4m """
     typ = Fmt2Typ[fmt]
     
     r_t = r_t_key(refname, typ)
@@ -556,6 +579,7 @@ def get_playlist(hdl, refname, fmt):
 import signal
 
 def kill_cr(cr):
+    """ Послать сигнал chunker'у (ffmpeg) прекратить работу """
     # HDS пока не порождает процесс, так что 
     # stop_signal ему нужен всегда
     cr.stop_signal = True
@@ -564,6 +588,7 @@ def kill_cr(cr):
         os.kill(cr.pid, signal.SIGTERM)
 
 def on_signal(_signum, _ignored_):
+    """ Прекратить работу сервера show_tv по Ctrl+C """
     print("Request to stop ...")
     # :TRICKY: вариант с ожиданием завершения оставшихся работ
     # есть на http://tornadogists.org/4643396/ , нам пока не нужен
@@ -591,6 +616,7 @@ else:
     stream_always_lst = ['pervyj']
 
 def stop_inactives():
+    """ Прекратить вещание каналов, которые никто не смотрит в течении STOP_PERIOD=10 минут """
     for r_t, cr in ChunkRangeDict.items():
         if cr.is_started and r_t not in ActivitySet and r_t.refname not in stream_always_lst:
             print("Stopping inactive:", r_t)
