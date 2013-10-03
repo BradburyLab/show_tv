@@ -34,7 +34,7 @@ else:
     # явного списка атрибутов, которые должен иметь класс
     class Struct(object):
         pass
-    
+
     def make_struct(**kwargs):
         """ Сделать объект с атрибутами """
         # вообще, для спец. случаев, требующих оптимизации по памяти, можно
@@ -114,10 +114,10 @@ def remove_chunks(rng, cr):
             fname = hls_chunk_name(i)
         elif typ == StreamType.HDS:
             fname = hds_chunk_name(cr.frg_tbl, i)
-             
+
         fname = out_fpath(r_t.refname, fname)
         os.unlink(fname)
-        
+
 def ready_chk_end(chunk_range):
     """ Конец списка готовых, полностью записанных фрагментов """
     return chunk_range.end-1
@@ -284,15 +284,25 @@ def do_stop_chunking(chunk_range):
     else:
         if may_restart:
             start_chunking(chunk_range)
-            
+
 #
 # HLS
 #
-    
+from tornado import gen
+from dvr import DVR
+
+dvr = DVR()
+
+
 def start_hls_chunking(chunk_range):
     chunk_range.start_times = []
 
+    @gen.engine
     def on_new_chunk(chunk_ts):
+        i = chunk_range.end
+        if i == 0:
+            chunk_range.start = datetime.datetime.utcnow()
+
         chunk_range.start_times.append(chunk_ts)
         chunk_range.end += 1
 
@@ -301,7 +311,32 @@ def start_hls_chunking(chunk_range):
             chunk_range.on_first_chunk_handlers = []
             for hdl in hdls:
                 hdl()
-        
+
+        # ------------------------------
+        if i > 0:
+            # индекс того чанка, который готов
+            _i = chunk_range.beg+i-1
+            # время в секундах от начала создания первого чанка
+            start_seconds = chunk_range.start_times[_i]
+            # путь до файла с говым чанком
+            fname = hls_chunk_name(_i)
+            path_payload = out_fpath(chunk_range.r_t.refname, fname)
+            # длина чанка
+            duration = chunk_duration(_i, chunk_range)
+            print('before -----------')
+            dvr.write(
+                name=chunk_range.r_t.refname,
+                bitrate=720,
+                start_utc=chunk_range.start,
+                start_seconds=start_seconds,
+                duration=duration,
+                is_pvr=True,
+                path_payload=path_payload,
+                metadata=b'{payload_key: payload_value}',
+            )
+            print('after -----------')
+        # ------------------------------
+
         max_total = 72 # максимум столько секунд храним
         max_cnt = int_ceil(float(max_total) / std_chunk_dur)
         diff = ready_chunks(chunk_range) - max_cnt
@@ -310,7 +345,7 @@ def start_hls_chunking(chunk_range):
             chunk_range.beg += diff
             del chunk_range.start_times[:diff]
             remove_chunks(range(old_beg, chunk_range.beg), chunk_range)
- 
+
     def on_stop_chunking():
         do_stop_chunking(chunk_range)
 
@@ -319,7 +354,7 @@ def start_hls_chunking(chunk_range):
         src_media_path = test_media_path()
     else:
         src_media_path = RefnameDict[refname]
-    
+
     chunk_range.pid = run_chunker(src_media_path, refname, on_new_chunk, on_stop_chunking)
 
 def chunk_duration(i, chunk_range):
@@ -337,7 +372,7 @@ def serve_hls_pl(hdl, chunk_range):
     # такое возможно, если путь оканчивается на .m3u8 , но в реальности
     # Safari/IPad такое не принимает (да и Firefox/Linux тоже)
     hdl.set_header("Content-Type", "application/vnd.apple.mpegurl")
-    
+
     write = hdl.write
     # EXT-X-TARGETDURATION - должен быть, и это
     # должен быть максимум
@@ -346,9 +381,9 @@ def serve_hls_pl(hdl, chunk_range):
     for i in written_chunks(chunk_range):
         dur = chunk_duration(i, chunk_range)
         name = hls_chunk_name(i)
-        
+
         max_dur = max(dur, max_dur)
-        
+
         # используем %f (6 знаков по умолчанию) вместо %s, чтобы на 
         # '%s' % 0.0000001 не получать '1e-07'
         chunk_lst.append("""#EXTINF:%(dur)f,
@@ -396,11 +431,11 @@ def start_hds_chunking(chunk_range):
     # не принимаем пустые таблицы
     assert frg_tbl
     first_chunk = frg_tbl[0]
-    
+
     import timeit
     timer_func = timeit.default_timer
     streaming_start = hds_ts(first_chunk) - timer_func()
-    
+
     def on_new_chunk():
         chunk_range.end += 1
 
@@ -419,7 +454,7 @@ def start_hds_chunking(chunk_range):
             chunk_range.on_first_chunk_handlers = []
             for hdl in hdls:
                 hdl()
-        
+
         max_total = 72 # максимум столько секунд храним
         #max_cnt = int_ceil(float(max_total) / std_chunk_dur)
         max_cnt = int_ceil(float(max_total) / 3)
@@ -442,14 +477,14 @@ def start_hds_chunking(chunk_range):
                 IOLoop.add_timeout(datetime.timedelta(seconds=timeout), on_new_chunk)
             else:
                 IOLoop.add_callback(on_new_chunk)
-        
+
     on_new_chunk()
-    
+
 import gen_hds
 def serve_hds_pl(hdl, chunk_range):
     # согласно FlashMediaManifestFileFormatSpecification.pdf
     hdl.set_header("Content-Type", "application/f4m+xml")
-    
+
     # судя по всему, для live нужно ставить эти заголовки, иначе плейер
     # решит, что список не изменяется (так делает 1tv (не всегда) и wowza)
     no_cache = [
