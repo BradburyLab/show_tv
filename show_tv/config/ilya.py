@@ -8,5 +8,5 @@ out_dir = os.path.join(prefix_dir, 'tmp/out_dir')
 
 ffmpeg_bin = os.path.expanduser("~/opt/src/ffmpeg/git/ffmpeg/objs/inst/bin/ffmpeg")
 
-use_hds = True
+use_hds = False # True # 
 

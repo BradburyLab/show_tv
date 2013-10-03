@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
 # coding: utf-8
+#
+# Copyright Bradbury Lab, 2013
+# Авторы: 
+#  Илья Муравьев
+#
 
 import os
 import o_p, s_
@@ -67,7 +72,7 @@ class StreamType:
     HDS = 1
 
 def enum_values(enum):
-    return tuple(v for k, v in vars(StreamType).items() if k.upper() == k)
+    return tuple(v for k, v in vars(enum).items() if k.upper() == k)
     
 # используем namedtuple в качестве ключей, так как 
 # они порождены от tuple => имеют адекватное упорядочивание
@@ -81,7 +86,7 @@ def r_t_iter(iteratable):
         каналов iteratable"""
     for refname in iteratable:
         for typ in enum_values(StreamType):
-                yield r_t_key(refname, typ)
+            yield r_t_key(refname, typ)
 
 # в Bradbury обычно 3 секунду GOP, а фрагмент:
 # - HLS: 9 секунд
@@ -161,7 +166,7 @@ def run_chunker(src_media_path, chunk_dir, on_new_chunk, on_stop_chunking, is_ba
     STREAM = Subprocess.STREAM
     ffmpeg_proc = Subprocess(cmd, stdout=STREAM, stderr=STREAM, shell=True)
  
-    segment_sign = re.compile(b"segment:'(.+)' starts with packet stream:.+pts_time:(?P<pt>[\d,\.]+)")
+    segment_sign = re.compile(br"segment:'(.+)' starts with packet stream:.+pts_time:(?P<pt>[\d,\.]+)")
     def on_line(line):
         m = segment_sign.search(line)
         if m:
@@ -170,8 +175,7 @@ def run_chunker(src_media_path, chunk_dir, on_new_chunk, on_stop_chunking, is_ba
             on_new_chunk(chunk_ts)
 
     line_sep = re.compile(br"(\n|\r\n?).", re.M)
-    class errdat:
-        txt = b''
+    errdat = make_struct(txt = b'')
     def process_lines(dat):
         errdat.txt += dat
         
@@ -214,8 +218,8 @@ def run_chunker(src_media_path, chunk_dir, on_new_chunk, on_stop_chunking, is_ba
     #ffmpeg_proc.stdout.read_until_close(on_data, on_data)
     ffmpeg_proc.stderr.read_until_close(on_stderr_end, on_stderr)
 
-    def on_proc_exit(exit_code):
-        #print("exit_code:", exit_code)
+    def on_proc_exit(_exit_code):
+        #print("exit_code:", _exit_code)
         set_stop(False)
     ffmpeg_proc.set_exit_callback(on_proc_exit)
     
@@ -486,15 +490,17 @@ RefnameDict = get_channels()[0]
 
 # словарь (имя канала, тип вещания) => chunk_range
 ChunkRangeDict = {}
-# :TODO: создавать по требованию (ленивая инициализация)
-for r_t in r_t_iter(RefnameDict):
-    ChunkRangeDict[r_t] = make_struct(
-        is_started = False,
-        on_first_chunk_handlers = [],
-        r_t = r_t,
-        
-        stop_signal = False
-    )
+def init_crd():
+    # :TODO: создавать по требованию (ленивая инициализация)
+    for r_t in r_t_iter(RefnameDict):
+        ChunkRangeDict[r_t] = make_struct(
+            is_started = False,
+            on_first_chunk_handlers = [],
+            r_t = r_t,
+            
+            stop_signal = False
+        )
+init_crd()
 
 ActivitySet = set()
 
@@ -557,7 +563,7 @@ def kill_cr(cr):
     if cr.r_t.typ == StreamType.HLS:
         os.kill(cr.pid, signal.SIGTERM)
 
-def on_signal(signum, _ignored_):
+def on_signal(_signum, _ignored_):
     print("Request to stop ...")
     # :TRICKY: вариант с ожиданием завершения оставшихся работ
     # есть на http://tornadogists.org/4643396/ , нам пока не нужен
@@ -599,6 +605,10 @@ def set_stop_timer():
     IOLoop.add_timeout(period, stop_inactives)
 
 def main():
+    print("""Fahrenheit 451 mediaserver. Frontend OTT server.
+Copyright Bradbury Lab, 2013
+Listens at 0.0.0.0:%s .""" % PORT)
+    
     if is_test:
         # для Tornado, чтоб на каждый запрос отчитывался
         logger = logging.getLogger()
