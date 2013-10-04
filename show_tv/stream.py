@@ -43,6 +43,9 @@ else:
         stct.__dict__.update(kwargs)
         return stct
 
+cur_directory = os.path.dirname(__file__)
+log_directory = os.path.join(cur_directory, '../log')
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -53,7 +56,7 @@ def parse_args():
     
     env_name = parser.parse_args().environment
     #print(env_name)
-    fpath = o_p.join(os.path.dirname(__file__), "config", env_name + ".py")
+    fpath = o_p.join(cur_directory, "config", env_name + ".py")
     with open(fpath) as f:
         txt = f.read()
     res = {}
@@ -75,7 +78,7 @@ def setup_logging():
         formatter = Formatter(color=False)
         f = logging.FileHandler(
             os.path.join(
-                'log', '{0}.{1}.log'.format(environment.name, stream)
+                log_directory, '{0}.{1}.log'.format(environment.name, stream)
             ),
             mode='w'
         )
@@ -103,7 +106,7 @@ def setup_logging():
         formatter = Formatter(color=False)
         f = logging.FileHandler(
             os.path.join(
-                'log', '{0}.{1}.log'.format(environment.name, logger_name)
+                log_directory, '{0}.{1}.log'.format(environment.name, logger_name)
             ),
             mode='w'
         )
@@ -450,10 +453,10 @@ def serve_hls_pl(hdl, chunk_range):
         # по спеке это должно быть целое число, иначе не работает (IPad)
         max_dur = int_ceil(max_dur)
         
-        # EXT-X-MEDIA-SEQUENCE - номер первого сегмента,
-        # нужен для указания клиенту на то, что список живой,
-        # т.е. его элементы будут добавляться/исчезать по FIFO
-        write("""#EXTM3U
+    # EXT-X-MEDIA-SEQUENCE - номер первого сегмента,
+    # нужен для указания клиенту на то, что список живой,
+    # т.е. его элементы будут добавляться/исчезать по FIFO
+    write("""#EXTM3U
 #EXT-X-VERSION:3
 #EXT-X-ALLOW-CACHE:NO
 #EXT-X-TARGETDURATION:%(max_dur)s

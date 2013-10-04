@@ -1,6 +1,7 @@
 # coding: utf-8
 
 is_test = True
+name = "development"
 
 import os
 prefix_dir = os.path.expanduser("~/opt/bl/f451")
