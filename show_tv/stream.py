@@ -673,31 +673,15 @@ def get_playlist_dvr(hdl, asset, fmt):
         startstamp=hdl.get_argument('start'),
         duration=hdl.get_argument('duration'),
     )
-    targetduration = math.ceil(max([r["duration"] for r in playlist_data]))
-    
-    playlist = (
-        '#EXTM3U\n'
-        '#EXT-X-VERSION:3\n'
-        '#EXT-X-TARGETDURATION:{targetduration}\n'
-        '#EXT-X-MEDIA-SEQUENCE:1\n'
-        .format(**{
-            'targetduration': targetduration,
-        })
+    playlist = dvr_reader.generate_playlist(
+        host=hdl.request.host,
+        asset=asset,
+        startstamps_durations=[
+            (r['startstamp'], r['duration'])
+            for r in playlist_data
+        ],
     )
-    for chunk_data in playlist_data:
-        _ = (
-            '#EXTINF:{duration},\n'
-            'http://172.16.0.170:8910/dvr/{asset}/{startstamp}\n'
-            .format(
-                asset=asset,
-                **chunk_data
-            )
-        )
-        playlist += _
-    playlist += '#EXT-X-ENDLIST'
-
     hdl.finish(playlist)
-
 
 def get_playlist(hdl, refname, fmt):
     """ Обработчик выдачи плейлистов playlist.m3u8 и manifest.f4m """

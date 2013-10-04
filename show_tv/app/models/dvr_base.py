@@ -1,9 +1,12 @@
 # coding: utf-8
+import os
+import math
 import socket
 import logging
 import tornado.iostream
 
 from tornado import gen
+from tornado import template
 
 
 class DVRBase(object):
@@ -33,3 +36,16 @@ class DVRBase(object):
         )
         self.l.debug('[{n}] reconnect finish\n'.format(**self.__dict__))
         callback(None)
+
+    def generate_playlist(self, host, asset, startstamps_durations):
+        loader = template.Loader(os.path.join(
+            os.path.abspath(os.path.dirname(__file__)),
+            '..',
+            'templates',
+        ))
+        return loader.load('dvr/playlist.m3u8').generate(
+            host=host,
+            asset=asset,
+            targetduration=math.ceil(max([r[1] for r in startstamps_durations])),
+            startstamps_durations=startstamps_durations,
+        )

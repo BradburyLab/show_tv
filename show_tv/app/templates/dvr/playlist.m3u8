@@ -1,0 +1,7 @@
+#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:{{ targetduration }}
+#EXT-X-MEDIA-SEQUENCE:1{% for startstamp, duration in startstamps_durations %}
+#EXTINF:{{ duration }},
+http://{{ host }}/dvr/{{ asset }}/{{ startstamp }}{% end %}
+#EXT-X-ENDLIST
