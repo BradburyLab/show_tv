@@ -374,8 +374,8 @@ def start_hls_chunking(chunk_range):
         diff = ready_chunks(chunk_range) - max_cnt
 
         # ------------------------------
-        if chunk_range.end > 1:
-        # if False:
+        # if chunk_range.end > 1:
+        if False:
             # индекс того чанка, который готов
             i = chunk_range.end-2
             # время в секундах от начала создания первого чанка
@@ -393,7 +393,7 @@ def start_hls_chunking(chunk_range):
                 duration=duration,
                 is_pvr=True,
                 path_payload=path_payload,
-                metadata=b'{payload_key: payload_value}',
+                metadata=b'{"metadata_key": "metadata_value"}',
             )
         # ------------------------------
 
@@ -647,23 +647,53 @@ Fmt2Typ = {
 
 from app.models.dvr_reader import DVRReader
 dvr_reader = DVRReader()
+
 @tornado.web.asynchronous
 @gen.engine
-def get_playlist_dvr(hdl, refname, fmt):
-    yield gen.Task(
+def get_dvr(hdl, asset, startstamp):
+    payload = yield gen.Task(
         dvr_reader.load,
-        asset=refname,
+        asset=asset,
+        bitrate=720,
+        startstamp=startstamp,
+    )
+    hdl.finish(payload)
+
+@tornado.web.asynchronous
+@gen.engine
+def get_playlist_dvr(hdl, asset, fmt):
+    hdl.set_header('Content-Type', 'application/vnd.apple.mpegurl')
+    playlist_data = yield gen.Task(
+        dvr_reader.range,
+        asset=asset,
         bitrate=720,
         startstamp=hdl.get_argument('start'),
+        duration=hdl.get_argument('duration'),
     )
-    # yield gen.Task(
-    #     dvr_reader.range,
-    #     asset=refname,
-    #     bitrate=720,
-    #     startstamp=hdl.get_argument('start'),
-    #     duration=hdl.get_argument('duration'),
-    # )
-    hdl.finish()
+    targetduration = math.ceil(max([r["duration"] for r in playlist_data]))
+    
+    playlist = (
+        '#EXTM3U\n'
+        '#EXT-X-VERSION:3\n'
+        '#EXT-X-TARGETDURATION:{targetduration}\n'
+        '#EXT-X-MEDIA-SEQUENCE:1\n'
+        .format(**{
+            'targetduration': targetduration,
+        })
+    )
+    for chunk_data in playlist_data:
+        _ = (
+            '#EXTINF:{duration},\n'
+            'http://172.16.0.170:8910/dvr/{asset}/{startstamp}\n'
+            .format(
+                asset=asset,
+                **chunk_data
+            )
+        )
+        playlist += _
+    playlist += '#EXT-X-ENDLIST'
+
+    hdl.finish(playlist)
 
 
 def get_playlist(hdl, refname, fmt):
@@ -777,6 +807,7 @@ def main():
     # обработчики
     handlers = [
         make_get_handler(r"/([-\w]+)/(playlist.m3u8|manifest.f4m)", get_playlist),
+        make_get_handler(r"^/dvr/(?P<asset>\w+)/(?P<startstamp>[0-9]+)", get_dvr),
     ]
     def make_static_handler(chunk_dir):
         return r"/%s/(.*)" % chunk_dir, tornado.web.StaticFileHandler, {"path": channel_dir(chunk_dir)}
