@@ -45,7 +45,11 @@ else:
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("-e", "--environment", required=True)
+    parser.add_argument(
+        '-e', '--environment',
+        dest='environment', type=str, default='development',
+        help='app environment',
+    )
     
     env_name = parser.parse_args().environment
     #print(env_name)
@@ -255,8 +259,8 @@ def start_chunking(chunk_range):
     
     # инициализация
     chunk_range.is_started = True
-    
     chunk_range.beg = 0
+    # номер следующего за пишущимся чанком
     chunk_range.end = 0
     
     # :TODO: переделать через полиморфизм
@@ -289,9 +293,9 @@ def do_stop_chunking(chunk_range):
 # HLS
 #
 from tornado import gen
-from dvr import DVR
+from app.models.dvr_writer import DVRWriter
 
-dvr = DVR()
+dvr_writer = DVRWriter()
 
 
 def start_hls_chunking(chunk_range):
@@ -299,8 +303,7 @@ def start_hls_chunking(chunk_range):
 
     @gen.engine
     def on_new_chunk(chunk_ts):
-        i = chunk_range.end
-        if i == 0:
+        if chunk_range.end == 0:
             chunk_range.start = datetime.datetime.utcnow()
 
         chunk_range.start_times.append(chunk_ts)
@@ -312,19 +315,23 @@ def start_hls_chunking(chunk_range):
             for hdl in hdls:
                 hdl()
 
+        max_total = 72 # максимум столько секунд храним
+        max_cnt = int_ceil(float(max_total) / std_chunk_dur)
+        diff = ready_chunks(chunk_range) - max_cnt
+
         # ------------------------------
-        if i > 0:
+        # if chunk_range.end > 1:
+        if False:
             # индекс того чанка, который готов
-            _i = chunk_range.beg+i-1
+            i = chunk_range.end-2
             # время в секундах от начала создания первого чанка
-            start_seconds = chunk_range.start_times[_i]
-            # путь до файла с говым чанком
-            fname = hls_chunk_name(_i)
+            start_seconds = chunk_range.start_times[i-chunk_range.beg]
+            # путь до файла с готовым чанком
+            fname = hls_chunk_name(i)
             path_payload = out_fpath(chunk_range.r_t.refname, fname)
             # длина чанка
-            duration = chunk_duration(_i, chunk_range)
-            print('before -----------')
-            dvr.write(
+            duration = chunk_duration(i, chunk_range)
+            dvr_writer.write(
                 name=chunk_range.r_t.refname,
                 bitrate=720,
                 start_utc=chunk_range.start,
@@ -334,12 +341,8 @@ def start_hls_chunking(chunk_range):
                 path_payload=path_payload,
                 metadata=b'{payload_key: payload_value}',
             )
-            print('after -----------')
         # ------------------------------
 
-        max_total = 72 # максимум столько секунд храним
-        max_cnt = int_ceil(float(max_total) / std_chunk_dur)
-        diff = ready_chunks(chunk_range) - max_cnt
         if diff > 0:
             old_beg = chunk_range.beg
             chunk_range.beg += diff
@@ -587,8 +590,28 @@ Fmt2Typ = {
     "manifest.f4m":  StreamType.HDS,
 }
 
+
+from app.models.dvr_reader import DVRReader
+dvr_reader = DVRReader()
+@tornado.web.asynchronous
+@gen.engine
+def get_playlist_dvr(hdl, refname, fmt):
+    yield gen.Task(
+        dvr_reader.load,
+        name=refname,
+        bitrate=720,
+        start=hdl.get_argument('start')
+    )
+    hdl.finish()
+
+
 def get_playlist(hdl, refname, fmt):
     """ Обработчик выдачи плейлистов playlist.m3u8 и manifest.f4m """
+    dvr = hdl.get_argument('DVR', False)
+    if dvr is not False:
+        get_playlist_dvr(hdl, refname, fmt)
+        return
+
     typ = Fmt2Typ[fmt]
     
     r_t = r_t_key(refname, typ)
