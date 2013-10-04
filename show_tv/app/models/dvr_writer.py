@@ -1,6 +1,4 @@
 # coding: utf-8
-import tornado.iostream
-import socket
 import struct
 
 from tornado import gen
@@ -29,10 +27,10 @@ class DVRWriter(DVRBase):
             yield gen.Task(self.reconnect)
 
         if self.c.closed():
-            print('[DVRWriter] failed to connect')
+            self.l.debug('[DVRWriter] failed to connect')
             return
 
-        print('[DVRWriter] write start >>>>>>>>>>>>>>>')
+        self.l.debug('[DVRWriter] write start >>>>>>>>>>>>>>>')
 
         if isinstance(name, str):
             name = name.encode()
@@ -40,18 +38,18 @@ class DVRWriter(DVRBase):
             payload = f.read()
         start = int((start_utc.timestamp() + start_seconds)*1000)
         duration = int(duration*1000)
-        len_metadata = len(metadata)
-        len_payload = len(payload)
+        metalen = len(metadata)
+        payloadlen = len(payload)
 
-        print('[DVRWriter] => name = {0}'.format(name))
-        print('[DVRWriter] => bitrate = {0}'.format(bitrate))
-        print('[DVRWriter] => start = {0}'.format(start))
-        print('[DVRWriter] => duration = {0}'.format(duration))
-        print('[DVRWriter] => is_pvr = {0}'.format(is_pvr))
-        print('[DVRWriter] => len_metadata = {0}'.format(len_metadata))
-        print('[DVRWriter] => len_payload = {0}'.format(len_payload))
-        print('[DVRWriter] => metadata = {0}'.format(metadata))
-        print('[DVRWriter] => path_payload = {0}'.format(path_payload))
+        self.l.debug('[DVRWriter] => name = {0}'.format(name))
+        self.l.debug('[DVRWriter] => bitrate = {0}'.format(bitrate))
+        self.l.debug('[DVRWriter] => start = {0}'.format(start))
+        self.l.debug('[DVRWriter] => duration = {0}'.format(duration))
+        self.l.debug('[DVRWriter] => is_pvr = {0}'.format(is_pvr))
+        self.l.debug('[DVRWriter] => metalen = {0}'.format(metalen))
+        self.l.debug('[DVRWriter] => payloadlen = {0}'.format(payloadlen))
+        self.l.debug('[DVRWriter] => metadata = {0}'.format(metadata))
+        self.l.debug('[DVRWriter] => path_payload = {0}'.format(path_payload))
 
         pack = struct.pack(
             "=32sLQLBHL",
@@ -66,9 +64,9 @@ class DVRWriter(DVRBase):
             # (5) (B) Это PVR?
             is_pvr,
             # (6) (H) Длина метаданных
-            len_metadata,
+            metalen,
             # (7) (L) Длина payload
-            len_payload,
+            payloadlen,
         )
 
         yield gen.Task(
@@ -79,4 +77,4 @@ class DVRWriter(DVRBase):
                 payload,
             ])
         )
-        print('[DVRWriter] write finish <<<<<<<<<<<<<<<\n')
+        self.l.debug('[DVRWriter] write finish <<<<<<<<<<<<<<<\n')

@@ -60,8 +60,62 @@ def parse_args():
     exec(txt, {}, res)
     return make_struct(**res)
 
+def setup_logging():
+    from lib.log import Formatter
+
+    # <logging.tornado> -----
+    for stream in (
+        'tornado.access',
+        'tornado.application',
+        # 'tornado.general',
+    ):
+        logger = logging.getLogger(stream)
+        logger.setLevel(logging.WARNING)
+
+        formatter = Formatter(color=False)
+        f = logging.FileHandler(
+            os.path.join(
+                'log', '{0}.{1}.log'.format(environment.name, stream)
+            ),
+            mode='w'
+        )
+        f.setLevel(logging.WARNING)
+        f.setFormatter(formatter)
+        logger.addHandler(f)
+    # ----- </logging.tornado>
+    # <logging.application> -----
+    for logger_name, level in (
+        ('stream', logging.DEBUG),
+        ('DVRReader', logging.DEBUG),
+        ('DVRWriter', logging.DEBUG),
+    ):
+        logger = logging.getLogger(logger_name)
+        logger.setLevel(level)
+        logger.propagate = False
+        logger.handlers = []
+
+        formatter = Formatter(color=True)
+        ch = logging.StreamHandler()
+        ch.setLevel(level)
+        ch.setFormatter(formatter)
+        logger.addHandler(ch)
+
+        formatter = Formatter(color=False)
+        f = logging.FileHandler(
+            os.path.join(
+                'log', '{0}.{1}.log'.format(environment.name, logger_name)
+            ),
+            mode='w'
+        )
+        f.setLevel(level)
+        f.setFormatter(formatter)
+        logger.addHandler(f)
+    # ----- </logging.application>
+
 # :TRICKY: окружение нужно в самом начале, поэтому -
 environment = parse_args()
+# Устанавливаем логи
+setup_logging()
 #import getpass
 #is_test = getpass.getuser() in ["muravyev", "ilya", "vany"]
 is_test = environment.is_test
@@ -320,8 +374,8 @@ def start_hls_chunking(chunk_range):
         diff = ready_chunks(chunk_range) - max_cnt
 
         # ------------------------------
-        # if chunk_range.end > 1:
-        if False:
+        if chunk_range.end > 1:
+        # if False:
             # индекс того чанка, который готов
             i = chunk_range.end-2
             # время в секундах от начала создания первого чанка
@@ -598,10 +652,17 @@ dvr_reader = DVRReader()
 def get_playlist_dvr(hdl, refname, fmt):
     yield gen.Task(
         dvr_reader.load,
-        name=refname,
+        asset=refname,
         bitrate=720,
-        start=hdl.get_argument('start')
+        startstamp=hdl.get_argument('start'),
     )
+    # yield gen.Task(
+    #     dvr_reader.range,
+    #     asset=refname,
+    #     bitrate=720,
+    #     startstamp=hdl.get_argument('start'),
+    #     duration=hdl.get_argument('duration'),
+    # )
     hdl.finish()
 
 
@@ -689,14 +750,19 @@ def set_stop_timer():
     IOLoop.add_timeout(period, stop_inactives)
 
 def main():
-    print("""Fahrenheit 451 mediaserver. Frontend OTT server.
-Copyright Bradbury Lab, 2013
-Listens at 0.0.0.0:%s .""" % PORT)
+    logger = logging.getLogger('stream')
+    logger.info(
+        '\n'
+        'Fahrenheit 451 mediaserver. Frontend OTT server.\n'
+        'Copyright Bradbury Lab, 2013\n'
+        'Listens at 0.0.0.0:{0}\n'
+        .format(PORT)
+    )
     
-    if is_test:
-        # для Tornado, чтоб на каждый запрос отчитывался
-        logger = logging.getLogger()
-        logger.setLevel(logging.INFO)
+    # if is_test:
+    #     # для Tornado, чтоб на каждый запрос отчитывался
+    #     logger = logging.getLogger()
+    #     logger.setLevel(logging.INFO)
         
     for r_t in r_t_iter(stream_always_lst):
         # :TODO: по умолчанию HDS пока не готово

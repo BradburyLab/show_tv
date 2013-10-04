@@ -11,5 +11,8 @@ dvb
 dvr/dvr
 dvr/.idea
 
-tmp
+tmp/*
+!tmp/.keep
+log/*
+!log/.keep
 env
