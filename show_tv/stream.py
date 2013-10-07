@@ -414,6 +414,7 @@ def start_hls_chunking(chunk_range):
     def on_stop_chunking():
         do_stop_chunking(chunk_range)
 
+    # :REFACTOR:
     refname = chunk_range.r_t.refname
     if is_test:
         src_media_path = test_media_path()
@@ -546,10 +547,8 @@ def start_hds_chunking(chunk_range):
     on_new_chunk()
 
 import gen_hds
-def serve_hds_pl(hdl, chunk_range):
-    # согласно FlashMediaManifestFileFormatSpecification.pdf
-    hdl.set_header("Content-Type", "application/f4m+xml")
 
+def disable_caching(hdl):
     # судя по всему, для live нужно ставить эти заголовки, иначе плейер
     # решит, что список не изменяется (так делает 1tv (не всегда) и wowza)
     no_cache = [
@@ -562,15 +561,26 @@ def serve_hds_pl(hdl, chunk_range):
     # :TRICKY: 1tv ставит еще Expires, Last-Modified, Vary, Accept-Ranges,
     # Age, но полагаю, что это к делу не относится (OSMFу все равно)
     
-    lst = chunk_range.frg_tbl[chunk_range.beg:ready_chk_end(chunk_range)]
-    # :REFACTOR:
-    refname = chunk_range.r_t.refname
-    is_live = True
-    f4m = gen_hds.gen_f4m(refname, gen_hds.gen_abst(lst, is_live), is_live)
+def serve_hds_pl(hdl, chunk_range):
+    hdl.set_header("Content-Type", "binary/octet")
+    disable_caching(hdl)
     
-    hdl.write(f4m)
+    lst = chunk_range.frg_tbl[chunk_range.beg:ready_chk_end(chunk_range)]
+    abst = gen_hds.gen_abst(lst, True)
+    
+    hdl.write(abst)
     hdl.finish()
 
+def get_f4m(hdl, refname):
+    # согласно FlashMediaManifestFileFormatSpecification.pdf
+    hdl.set_header("Content-Type", "application/f4m+xml")
+    # :TRICKY: не нужно вроде
+    disable_caching(hdl)
+    
+    is_live = True
+    f4m = gen_hds.gen_f4m(refname, gen_hds.PLAYLIST_ABST, is_live)
+    hdl.write(f4m)
+    
 #
 # выдача
 #
@@ -647,12 +657,6 @@ def force_chunking(chunk_range):
         
     return chunk_range.is_started
 
-Fmt2Typ = {
-    "playlist.m3u8": StreamType.HLS,
-    "manifest.f4m":  StreamType.HDS,
-}
-
-
 from app.models.dvr_reader import DVRReader
 dvr_reader = DVRReader()
 
@@ -687,6 +691,11 @@ def get_playlist_dvr(hdl, asset, fmt):
         ],
     )
     hdl.finish(playlist)
+
+Fmt2Typ = {
+    "playlist.m3u8": StreamType.HLS,
+    gen_hds.PLAYLIST_ABST: StreamType.HDS,
+}
 
 def get_playlist(hdl, refname, fmt):
     """ Обработчик выдачи плейлистов playlist.m3u8 и manifest.f4m """
@@ -798,7 +807,10 @@ def main():
     
     # обработчики
     handlers = [
-        make_get_handler(r"/([-\w]+)/(playlist.m3u8|manifest.f4m)", get_playlist),
+        make_get_handler(r"/(?P<refname>[-\w]+)/(?P<fmt>playlist.m3u8|playlist.abst)", get_playlist),
+        # HDS: выдаем плейлист отдельно от манифеста, иначе клиент плейлист не обновляет => live не играет
+        # :TODO: нужна проверка существования канала такая же, что и в get_playlist()
+        make_get_handler(r"/(?P<refname>[-\w]+)/manifest.f4m", get_f4m, False),
         make_get_handler(r"^/dvr/(?P<asset>\w+)/(?P<startstamp>[0-9]+)", get_dvr),
     ]
     def make_static_handler(chunk_dir):
