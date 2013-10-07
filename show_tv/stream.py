@@ -73,7 +73,8 @@ def setup_logging():
         # 'tornado.general',
     ):
         logger = logging.getLogger(stream)
-        logger.setLevel(logging.WARNING)
+        tornado_lvl = logging.INFO if get_env_value("verbose_tornado", False) else logging.WARNING
+        logger.setLevel(tornado_lvl)
 
         formatter = Formatter(color=False)
         f = logging.FileHandler(
@@ -82,7 +83,7 @@ def setup_logging():
             ),
             mode='w'
         )
-        f.setLevel(logging.WARNING)
+        f.setLevel(tornado_lvl)
         f.setFormatter(formatter)
         logger.addHandler(f)
     # ----- </logging.tornado>
@@ -117,6 +118,10 @@ def setup_logging():
 
 # :TRICKY: окружение нужно в самом начале, поэтому -
 environment = parse_args()
+
+def get_env_value(key, def_value=None):
+    return getattr(environment, key, def_value)
+
 # Устанавливаем логи
 setup_logging()
 #import getpass
@@ -206,7 +211,7 @@ def channel_dir(chunk_dir):
     return out_fpath(chunk_dir)
 
 def emulate_live():
-    return is_test and getattr(environment, "emulate_live", True)
+    return is_test and get_env_value("emulate_live", True)
 
 def run_chunker(src_media_path, chunk_dir, on_new_chunk, on_stop_chunking, is_batch=False):
     """ Запустить ffmpeg для фрагментирования файла/исходника src_media_path для
@@ -783,7 +788,7 @@ def main():
         
     for r_t in r_t_iter(stream_always_lst):
         # :TODO: по умолчанию HDS пока не готово
-        use_hds = getattr(environment, "use_hds", False)
+        use_hds = get_env_value("use_hds", False)
         if use_hds or (r_t.typ != StreamType.HDS):
             start_chunking(ChunkRangeDict[r_t])
              
