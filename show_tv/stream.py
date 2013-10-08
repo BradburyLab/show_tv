@@ -438,7 +438,7 @@ def start_hds_chunking(chunk_range):
             next_idx = chunk_range.end
             frg = frg_tbl[next_idx]
 
-            if emulate_live():
+            if not is_test or emulate_live():
                 timeout = hds_ts(frg) - streaming_start - timer_func()
                 IOLoop.add_timeout(datetime.timedelta(seconds=timeout), on_new_chunk)
             else:

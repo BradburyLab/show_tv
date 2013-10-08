@@ -6,3 +6,5 @@ ffmpeg_bin = "/home/ilil/show_tv/ffmpeg/objs/inst/bin/ffmpeg"
 
 use_hds = True
 test_f4m = "/home/ilil/show_tv/test_hds/test.f4m"
+
+verbose_tornado = "True"
