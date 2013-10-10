@@ -1,5 +1,8 @@
 # coding: utf-8
 
+# для тестирования мультикаста "на живую"
+#cast_one_source = "udp://239.0.0.5:1234"
+
 is_test = True
 #name = "development"
 

@@ -25,7 +25,8 @@ from configuration import make_struct, environment, get_env_value
 
 #import getpass
 #is_test = getpass.getuser() in ["muravyev", "ilya", "vany"]
-is_test = environment.is_test
+cast_one_source = get_env_value("cast_one_source", None)
+is_test = not cast_one_source and environment.is_test
 
 PORT = 8910
 
@@ -315,7 +316,9 @@ def start_hls_chunking(chunk_range):
 
     # :REFACTOR:
     refname = chunk_range.r_t.refname
-    if is_test:
+    if cast_one_source:
+        src_media_path = cast_one_source
+    elif is_test:
         src_media_path = test_media_path()
     else:
         src_media_path = RefnameDict[refname]
