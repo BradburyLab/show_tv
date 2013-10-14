@@ -5,14 +5,21 @@ from call_cmd import call_cmd
 import o_p, os
 
 if __name__ == '__main__':
-    is_libav = False
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        '--is_libav',
+        dest='is_libav', type=bool, default=False,
+        help='to build libav instead of ffmpeg',
+    )
+    parser.add_argument("src_path", help="where is ffmpeg/libav source directory")
+    args = parser.parse_args()
     
+    is_libav = args.is_libav
+    src_dir = args.src_path
     if is_libav:
-        src_dir = "/home/ilya/opt/src/ffmpeg/git/libav"
         add_opts = ""
     else:
-        # src_dir = "/home/ilil/show_tv/ffmpeg"
-        src_dir = "/home/vany/ffmpeg"
         add_opts = "--disable-stripping"
     bld_dir = o_p.join(src_dir, "objs")
 
