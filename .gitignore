@@ -10,6 +10,8 @@ dvb
 
 dvr/dvr
 dvr/.idea
+dvr/pp
+dvr/451-dvr
 
 tmp/*
 !tmp/.keep
