@@ -1,1 +1,2 @@
-tornado
+pyaio==0.4
+tornado==3.1.1

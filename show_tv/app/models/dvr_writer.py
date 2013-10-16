@@ -1,5 +1,6 @@
 # coding: utf-8
 import os
+import pyaio
 import struct
 
 from tornado import gen
@@ -35,8 +36,7 @@ class DVRWriter(DVRBase):
 
         if isinstance(name, str):
             name = name.encode()
-        with open(path_payload, 'rb') as f:
-            payload = f.read()
+
         start = int((start_utc.timestamp() + start_seconds)*1000)
         duration = int(duration*1000)
         metalen = len(metadata)
@@ -70,12 +70,24 @@ class DVRWriter(DVRBase):
             payloadlen,
         )
 
-        yield gen.Task(
-            self.c.write,
-            b''.join([
-                pack,
-                metadata,
-                payload,
-            ])
-        )
-        self.l.debug('[DVRWriter] write finish <<<<<<<<<<<<<<<\n')
+        fd = os.open(path_payload, os.O_RDONLY)
+
+        @gen.engine
+        def on_read(buf, rcode, errno):
+            os.close(fd)
+            if rcode > 0:
+                yield gen.Task(
+                    self.c.write,
+                    b''.join([
+                        pack,
+                        metadata,
+                        buf,
+                    ])
+                ) 
+            elif rcode == 0:
+                print("EOF")
+            else:
+                print("Error: %d" % errno)
+            self.l.debug('[DVRWriter] write finish <<<<<<<<<<<<<<<\n')
+
+        pyaio.aio_read(fd, 0, payloadlen, on_read)
