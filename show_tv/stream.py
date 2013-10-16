@@ -22,6 +22,7 @@ IOLoop = tornado.ioloop.IOLoop.instance()
 
 #import configuration
 from configuration import make_struct, environment, get_env_value 
+import api
 
 #import getpass
 #is_test = getpass.getuser() in ["muravyev", "ilya", "vany"]
@@ -141,7 +142,7 @@ def run_chunker(src_media_path, chunk_dir, on_new_chunk, on_stop_chunking, bitra
     STREAM = Subprocess.STREAM
     ffmpeg_proc = Subprocess(cmd, stdout=STREAM, stderr=STREAM, shell=True)
  
-    segment_sign = re.compile(br"segment:'(.+)' starts with packet stream:.+pts_time:(?P<pt>[\d,\.]+)")
+    segment_sign = api.segment_sign
     def on_line(line):
         m = segment_sign.search(line)
         if m:
