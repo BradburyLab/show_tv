@@ -256,7 +256,7 @@ def do_stop_chunking(chunk_range):
 from tornado import gen
 from app.models.dvr_writer import DVRWriter
 
-dvr_writer = DVRWriter()
+dvr_writer = DVRWriter(host=environment.dvr_host)
 
 
 def start_hls_chunking(chunk_range):
@@ -280,21 +280,27 @@ def start_hls_chunking(chunk_range):
         max_cnt = int_ceil(float(max_total) / std_chunk_dur)
         diff = ready_chunks(chunk_range) - max_cnt
 
-        # ------------------------------
-        # if chunk_range.end > 1:
-        if False:
+        # <DVR writer> --------------------------------------------------------
+        if (
+            environment.do_write_dvr == True and
+            chunk_range.end > 1
+        ):
             # индекс того чанка, который готов
             i = chunk_range.end-2
             # время в секундах от начала создания первого чанка
             start_seconds = chunk_range.start_times[i-chunk_range.beg]
             # путь до файла с готовым чанком
             fname = hls_chunk_name(i)
-            path_payload = out_fpath(chunk_range.r_t_b.refname, fname)
+            path_payload = out_fpath(
+                chunk_range.r_t_b.refname,
+                str(chunk_range.r_t_b.bitrate),
+                fname
+            )
             # длина чанка
             duration = chunk_duration(i, chunk_range)
             dvr_writer.write(
                 name=chunk_range.r_t_b.refname,
-                bitrate=720,
+                bitrate=chunk_range.r_t_b.bitrate,
                 start_utc=chunk_range.start,
                 start_seconds=start_seconds,
                 duration=duration,
@@ -302,7 +308,7 @@ def start_hls_chunking(chunk_range):
                 path_payload=path_payload,
                 metadata=b'{"metadata_key": "metadata_value"}',
             )
-        # ------------------------------
+        # ------------------------------------------------------- </DVR writer>
 
         if diff > 0:
             old_beg = chunk_range.beg
@@ -561,15 +567,17 @@ def force_chunking(chunk_range):
     return chunk_range.is_started
 
 from app.models.dvr_reader import DVRReader
-dvr_reader = DVRReader()
+dvr_reader = DVRReader(host=environment.dvr_host)
 
 @tornado.web.asynchronous
 @gen.engine
-def get_dvr(hdl, asset, startstamp):
+def get_dvr(hdl, asset, startstamp, duration, bitrate):
+    startstamp = int(startstamp)
+    bitrate = int(bitrate)
     payload = yield gen.Task(
         dvr_reader.load,
         asset=asset,
-        bitrate=720,
+        bitrate=bitrate,
         startstamp=startstamp,
     )
     hdl.finish(payload)
@@ -577,8 +585,15 @@ def get_dvr(hdl, asset, startstamp):
 from tornado import template
 
 @tornado.web.asynchronous
-def get_playlist_multibitrate(hdl, asset):
+def get_playlist_multibitrate(hdl, asset, startstamp=None, duration=None):
     hdl.set_header("Content-Type", "application/vnd.apple.mpegurl")
+
+    if (
+        startstamp is None and duration is not None or
+        startstamp is not None and duration is None
+    ):
+        raise_error(400)
+
     loader = template.Loader(os.path.join(
         os.path.abspath(os.path.dirname(__file__)),
         'app',
@@ -588,40 +603,52 @@ def get_playlist_multibitrate(hdl, asset):
         asset=asset,
         bitrates=environment.bitrates,
     )
+
     hdl.finish(playlist)
 
 @tornado.web.asynchronous
 @gen.engine
-def get_playlist_dvr(hdl, asset, bitrate, extension):
+def get_playlist_dvr(hdl, asset, bitrate, extension, startstamp, duration):
     hdl.set_header('Content-Type', 'application/vnd.apple.mpegurl')
     playlist_data = yield gen.Task(
         dvr_reader.range,
         asset=asset,
-        bitrate=720,
-        startstamp=hdl.get_argument('start'),
-        duration=hdl.get_argument('duration'),
+        bitrate=bitrate,
+        startstamp=startstamp,
+        duration=duration,
     )
-    playlist = dvr_reader.generate_playlist(
-        host=hdl.request.host,
-        asset=asset,
-        startstamps_durations=[
-            (r['startstamp'], r['duration'])
-            for r in playlist_data
-        ],
-    )
-    hdl.finish(playlist)
+
+    if playlist_data:
+        playlist = dvr_reader.generate_playlist(
+            host=hdl.request.host,
+            asset=asset,
+            startstamps_durations=[
+                (r['startstamp'], r['duration'])
+                for r in playlist_data
+            ],
+            bitrate=bitrate,
+        )
+        hdl.finish(playlist)
+    else:
+        raise_error(404)
 
 Fmt2Typ = {
     "m3u8": StreamType.HLS,
     gen_hds.PLAYLIST_ABST: StreamType.HDS,
 }
 
-def get_playlist(hdl, asset, bitrate, extension):
+def get_playlist_singlebitrate(hdl, asset, bitrate, extension, startstamp=None, duration=None):
     """ Обработчик выдачи плейлистов playlist.m3u8 и manifest.f4m """
-    dvr = hdl.get_argument('DVR', False)
     bitrate = int(bitrate)
-    if dvr is not False:
-        get_playlist_dvr(hdl, asset, bitrate, extension)
+
+    if (
+        startstamp is None and duration is not None or
+        startstamp is not None and duration is None
+    ):
+        raise_error(400)
+
+    if startstamp is not None and duration is not None:
+        get_playlist_dvr(hdl, asset, bitrate, extension, startstamp, duration)
         return
 
     typ = Fmt2Typ[extension]
@@ -727,13 +754,12 @@ def main():
     
     # обработчики
     handlers = [
-        make_get_handler(r"^/(?P<asset>\w+)/smil.m3u8", get_playlist_multibitrate),
-        # make_get_handler(r"/(?P<asset>\w+)/(?P<bitrate>\d+).m3u8", get_playlist_singlebitrate),
-        make_get_handler(r"/(?P<asset>[-\w]+)/(?P<bitrate>\d+)\.(?P<extension>m3u8|abst)", get_playlist),
+        make_get_handler(r"^/(?P<asset>\w+)/?(?P<startstamp>\d+)/?(?P<duration>\d+)?/smil.m3u8", get_playlist_multibitrate),
+        make_get_handler(r"^/(?P<asset>[-\w]+)/?(?P<startstamp>\d+)?/(?P<duration>\d+)/?(?P<bitrate>\d+)?\.(?P<extension>m3u8|abst)", get_playlist_singlebitrate),
         # HDS: выдаем плейлист отдельно от манифеста, иначе клиент плейлист не обновляет => live не играет
         # :TODO: нужна проверка существования канала такая же, что и в get_playlist()
         make_get_handler(r"/(?P<refname>[-\w]+)/manifest.f4m", get_f4m, False),
-        make_get_handler(r"^/dvr/(?P<asset>\w+)/(?P<startstamp>[0-9]+)", get_dvr),
+        make_get_handler(r"^/(?P<asset>\w+)/(?P<startstamp>\d+)/(?P<duration>\d+)/(?P<bitrate>\d+)\.ts", get_dvr),
     ]
     def make_static_handler(chunk_dir):
         return r"/%s/(.*)" % chunk_dir, tornado.web.StaticFileHandler, {"path": out_fpath(chunk_dir)}

@@ -1,4 +1,5 @@
 # coding: utf-8
+import os
 import struct
 
 from tornado import gen
@@ -39,7 +40,7 @@ class DVRWriter(DVRBase):
         start = int((start_utc.timestamp() + start_seconds)*1000)
         duration = int(duration*1000)
         metalen = len(metadata)
-        payloadlen = len(payload)
+        payloadlen = os.stat(path_payload).st_size
 
         self.l.debug('[DVRWriter] => name = {0}'.format(name))
         self.l.debug('[DVRWriter] => bitrate = {0}'.format(bitrate))

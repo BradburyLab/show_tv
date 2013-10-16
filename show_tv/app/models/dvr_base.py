@@ -37,7 +37,7 @@ class DVRBase(object):
         self.l.debug('[{n}] reconnect finish\n'.format(**self.__dict__))
         callback(None)
 
-    def generate_playlist(self, host, asset, startstamps_durations):
+    def generate_playlist(self, host, asset, startstamps_durations, bitrate):
         loader = template.Loader(os.path.join(
             os.path.abspath(os.path.dirname(__file__)),
             '..',
@@ -48,4 +48,5 @@ class DVRBase(object):
             asset=asset,
             targetduration=math.ceil(max([r[1] for r in startstamps_durations])),
             startstamps_durations=startstamps_durations,
+            bitrate=bitrate,
         )
