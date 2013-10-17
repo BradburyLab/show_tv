@@ -15,13 +15,16 @@ class DVRWriter(DVRBase):
     @gen.engine
     def write(
         self,
-        name, bitrate,
+        r_t_b,
         start_utc, start_seconds,
         duration, is_pvr,
         path_payload, metadata
     ):
         '''
         '''
+        name    = r_t_b.refname,
+        bitrate = r_t_b.bitrate,
+        
         if not hasattr(self, 'c'):
             yield gen.Task(self.reconnect)
 

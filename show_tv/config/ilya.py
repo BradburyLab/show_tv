@@ -6,13 +6,14 @@
 #cast_one_source = "udp://236.1.1.1:1234"  # cразу после "декриптора"
 
 is_test = True
-#name = "development"
+#emulate_live = False
 
 import os
 out_dir = os.path.join(os.path.expanduser("~/opt/bl/f451"), 'tmp/out_dir')
 ffmpeg_bin = os.path.expanduser("~/opt/src/ffmpeg/git/ffmpeg/objs/inst/bin/ffmpeg")
 
 use_hds = True # False # 
+#real_hds_chunking = False
 verbose_tornado = is_test
 
 # по умолчанию DVR включен и хост равен "localhost"; None полностью
@@ -20,4 +21,3 @@ verbose_tornado = is_test
 dvr_host = None
 # при тестировании: разные файлы для разных битрейтов, а не один
 multibitrate_testing = False
-

@@ -35,9 +35,7 @@ def int_ceil(float_):
     """ Округлить float в больщую сторону """
     return int(math.ceil(float_))
 
-class StreamType:
-    HLS = 0
-    HDS = 1
+StreamType = api.StreamType
 
 def enum_values(enum):
     return tuple(v for k, v in vars(enum).items() if k.upper() == k)
@@ -67,7 +65,7 @@ def r_t_b_iter(iteratable):
                 yield r_t_b_key(refname, typ, resolution)
 
 # в Bradbury обычно 3 секунду GOP, а фрагмент:
-# - HLS: 9 секунд
+# - HLS: 6 секунд (раньше было 9)
 # - HDS: 6 секунд
 std_chunk_dur = 6
 # формат фрагментов
@@ -83,20 +81,21 @@ def out_fpath(chunk_dir, *fname):
     """ Вернуть полный путь до файла в OUT_DIR """
     return o_p.join(OUT_DIR, chunk_dir, *fname)
 
-def get_chunk_fpath(r_t_b, fname):
+real_hds_chunking = get_env_value("real_hds_chunking", True)
+
+def get_chunk_fpath(r_t_b, i):
+    typ = r_t_b.typ
+    if typ == StreamType.HLS:
+        fname = hls_chunk_name(i)
+    elif typ == StreamType.HDS:
+        fname = hds_chunk_name(i)
     return out_fpath(r_t_b.refname, str(r_t_b.bitrate), fname)
 
 def remove_chunks(rng, cr):
     r_t_b = cr.r_t_b
     typ = r_t_b.typ
     for i in rng:
-        if typ == StreamType.HLS:
-            fname = hls_chunk_name(i)
-        elif typ == StreamType.HDS:
-            fname = hds_chunk_name(cr.frg_tbl, i)
-
-        fname = get_chunk_fpath(r_t_b, fname)
-        os.unlink(fname)
+        os.unlink(get_chunk_fpath(r_t_b, i))
 
 def ready_chk_end(chunk_range):
     """ Конец списка готовых, полностью записанных фрагментов """
@@ -108,13 +107,16 @@ def written_chunks(chunk_range):
     """ Range готовых чанков """
     return range(chunk_range.beg, ready_chk_end(chunk_range))
 
+def is_test_hds(chunk_range):
+    # :REFACTOR: chunk_range.r_t_b.typ
+    return not real_hds_chunking and (chunk_range.r_t_b.typ == StreamType.HDS)
+
 def may_serve_pl(chunk_range):
     """ Можно ли вещать канал = достаточно ли чанков для выдачи в плейлисте """
-    # :TEMP: везде перейти на std_chunk_dur
-    this_chunk_dur = {
-        StreamType.HLS: std_chunk_dur,
-        StreamType.HDS: 3,
-    }[chunk_range.r_t_b.typ] # :REFACTOR:
+    if is_test_hds(chunk_range):
+        this_chunk_dur = 3
+    else:
+        this_chunk_dur = std_chunk_dur
     
     min_total = 12 # максимум столько секунд храним
     min_cnt = int_ceil(float(min_total) / this_chunk_dur) # :REFACTOR:
@@ -124,7 +126,7 @@ def may_serve_pl(chunk_range):
 def emulate_live():
     return is_test and get_env_value("emulate_live", True)
 
-def run_chunker(src_media_path, chunk_dir, on_new_chunk, on_stop_chunking, is_batch=False):
+def run_chunker(src_media_path, typ, chunk_dir, on_new_chunk, on_stop_chunking, is_batch=False):
     """ Запустить ffmpeg для фрагментирования файла/исходника src_media_path для
         вещания канала chunk_dir; 
         - on_new_chunk - что делать в момент начала создания нового фрагмента
@@ -135,18 +137,26 @@ def run_chunker(src_media_path, chunk_dir, on_new_chunk, on_stop_chunking, is_ba
     ffmpeg_bin = environment.ffmpeg_bin
     
     # :TRICKY: так отлавливаем сообщение от segment.c вида "starts with packet stream"
-    log_type = "debug"
     in_opts = "-i " + src_media_path
     if emulate_live() and not is_batch:
         # эмулируем выдачу видео в реальном времени
         in_opts = "-re " + in_opts
-    bl_options = "-segment_time %s" % std_chunk_dur
-    cmd = "%(ffmpeg_bin)s -v %(log_type)s %(in_opts)s -map 0 -codec copy -f ssegment %(bl_options)s" % locals()
+    
+    is_hls = typ == StreamType.HLS
+    if is_hls:
+        ffmpeg_bin += " -v debug"
+        chunk_options = "-codec copy -map 0 -f ssegment -segment_time %s" % std_chunk_dur 
+    else:
+        chunk_options = "-codec copy -bsf:a aac_adtstoasc" 
+        chunk_options = "-vcodec copy -strict experimental -c:a aac -ac 2 -ar 44100" 
+        #chunk_options += " -f hds -hds_time %s" % std_chunk_dur
+    cmd = "%(ffmpeg_bin)s %(in_opts)s %(chunk_options)s" % locals()
     if is_test:
         #cmd += " -segment_list %(out_dir)s/playlist.m3u8" % locals()
         pass
 
-    cmd += " %s" % out_fpath(chunk_dir, chunk_tmpl)
+    o_fpath = out_fpath(chunk_dir, chunk_tmpl if is_hls else "manifest.f4m")
+    cmd += " %s" % o_fpath
     #print(cmd)
     
     Subprocess = tornado.process.Subprocess
@@ -238,12 +248,10 @@ def start_chunking(chunk_range):
     # номер следующего за пишущимся чанком
     chunk_range.end = 0
     
-    # :TODO: переделать через полиморфизм
-    typ = chunk_range.r_t_b.typ
-    if typ == StreamType.HLS:
-        start_hls_chunking(chunk_range)
-    elif typ == StreamType.HDS:
-        start_hds_chunking(chunk_range)
+    if is_test_hds(chunk_range):
+        start_test_hds_chunking(chunk_range)
+    else:
+        start_ffmpeg_chunking(chunk_range)
         
 def do_stop_chunking(chunk_range):
     """ Функция, которую нужно выполнить по окончанию вещания (когда закончил
@@ -264,9 +272,6 @@ def do_stop_chunking(chunk_range):
         if may_restart:
             start_chunking(chunk_range)
 
-#
-# HLS
-#
 from tornado import gen
 from app.models.dvr_writer import DVRWriter
 
@@ -275,10 +280,9 @@ def get_dvr_host():
 
 dvr_writer = DVRWriter(host=get_dvr_host())
 
-def start_hls_chunking(chunk_range):
+def start_ffmpeg_chunking(chunk_range):
     chunk_range.start_times = []
 
-    @gen.engine
     def on_new_chunk(chunk_ts):
         if chunk_range.end == 0:
             chunk_range.start = datetime.datetime.utcnow()
@@ -307,16 +311,14 @@ def start_hls_chunking(chunk_range):
             # время в секундах от начала создания первого чанка
             start_seconds = chunk_range.start_times[i-chunk_range.beg]
             # путь до файла с готовым чанком
-            fname = hls_chunk_name(i)
             path_payload = get_chunk_fpath(
                 chunk_range.r_t_b, 
-                fname
+                i
             )
             # длина чанка
             duration = chunk_duration(i, chunk_range)
             dvr_writer.write(
-                name=chunk_range.r_t_b.refname,
-                bitrate=chunk_range.r_t_b.bitrate,
+                r_t_b=chunk_range.r_t_b,
                 start_utc=chunk_range.start,
                 start_seconds=start_seconds,
                 duration=duration,
@@ -335,9 +337,7 @@ def start_hls_chunking(chunk_range):
     def on_stop_chunking():
         do_stop_chunking(chunk_range)
 
-    # :REFACTOR:
-    r_t_b = chunk_range.r_t_b
-    refname, resolution = r_t_b.refname, r_t_b.bitrate 
+    refname, typ, resolution = chunk_range.r_t_b
     if cast_one_source:
         src_media_path = cast_one_source
     elif is_test:
@@ -347,13 +347,17 @@ def start_hls_chunking(chunk_range):
         src_media_path = refname2address_dictionary[refname][out_number]
 
     chunk_dir = "{0}/{1}".format(refname, resolution)
-    chunk_range.pid = run_chunker(src_media_path, chunk_dir, on_new_chunk, on_stop_chunking)
+    chunk_range.pid = run_chunker(src_media_path, typ, chunk_dir, on_new_chunk, on_stop_chunking)
 
 def chunk_duration(i, chunk_range):
     """ Длительность фрагмента в секундах, float """
     i -= chunk_range.beg
     st = chunk_range.start_times
     return st[i+1] - st[i]
+
+#
+# HLS
+#
 
 def serve_hls_pl(hdl, chunk_range):
     """ Выдача плейлиста HLS, .m3u8; 
@@ -408,13 +412,13 @@ def serve_hls_pl(hdl, chunk_range):
 # HDS
 #
 
-def hds_ts(chunk):
+def test_hds_ts(chunk):
     return chunk[1]
-def hds_duration(chunk):
+def test_hds_duration(chunk):
     return chunk[2]
 
-def hds_chunk_name(frg_tbl, i):
-    return "Seg1-Frag%s" % frg_tbl[i][0]
+def hds_chunk_name(i):
+    return "Seg1-Frag%s" % (i+1)
 
 # копипаст shutil._ensure_directory()
 def ensure_directory(path):
@@ -423,8 +427,9 @@ def ensure_directory(path):
     if not os.path.isdir(dirname):
         os.makedirs(dirname)
 
-def start_hds_chunking(chunk_range):
-    #chunk_range.pid = -1 # эмуляция сущeствования процесса
+# :REFACTOR: куча всего одинакового с start_ffmpeg_chunking(),
+# однако этот код все равно тестовый
+def start_test_hds_chunking(chunk_range):
     import abst
     import test_hds
     chunk_range.frg_tbl = frg_tbl = test_hds.get_frg_tbl()
@@ -435,7 +440,7 @@ def start_hds_chunking(chunk_range):
 
     import timeit
     timer_func = timeit.default_timer
-    streaming_start = hds_ts(first_chunk) - timer_func()
+    streaming_start = test_hds_ts(first_chunk) - timer_func()
 
     def on_new_chunk():
         chunk_range.end += 1
@@ -443,9 +448,9 @@ def start_hds_chunking(chunk_range):
         # копируем готовый фрагмент
         # (заранее, хоть он пока и "не готов")
         done_chunk_idx = chunk_range.end-1
-        fname = hds_chunk_name(frg_tbl, done_chunk_idx)
+        fname = hds_chunk_name(done_chunk_idx)
         src_fname = o_p.join(test_hds.get_frg_test_dir(), fname)
-        dst_fname = get_chunk_fpath(chunk_range.r_t_b, fname)
+        dst_fname = get_chunk_fpath(chunk_range.r_t_b, done_chunk_idx)
         import shutil
         ensure_directory(dst_fname)
         shutil.copyfile(src_fname, dst_fname)
@@ -475,7 +480,7 @@ def start_hds_chunking(chunk_range):
             frg = frg_tbl[next_idx]
 
             if not is_test or emulate_live():
-                timeout = hds_ts(frg) - streaming_start - timer_func()
+                timeout = test_hds_ts(frg) - streaming_start - timer_func()
                 IOLoop.add_timeout(datetime.timedelta(seconds=timeout), on_new_chunk)
             else:
                 IOLoop.add_callback(on_new_chunk)
@@ -501,7 +506,10 @@ def serve_hds_pl(hdl, chunk_range):
     hdl.set_header("Content-Type", "binary/octet")
     disable_caching(hdl)
     
-    lst = chunk_range.frg_tbl[chunk_range.beg:ready_chk_end(chunk_range)]
+    if real_hds_chunking:
+        lst = gen_hds.make_frg_tbl(chunk_range.start_times, chunk_range.beg)
+    else:
+        lst = chunk_range.frg_tbl[chunk_range.beg:ready_chk_end(chunk_range)]
     abst = gen_hds.gen_abst(lst, True)
     
     hdl.write(abst)
@@ -715,6 +723,7 @@ def get_playlist_singlebitrate(hdl, asset, bitrate, extension, startstamp=None, 
         # например, из-за сигнала остановить сервер
         raise_error(503)
 
+    # :TODO: переделать через полиморфизм?
     serve_pl = {
         StreamType.HLS: serve_hls_pl,
         StreamType.HDS: serve_hds_pl,
@@ -733,11 +742,9 @@ import signal
 
 def kill_cr(cr):
     """ Послать сигнал chunker'у (ffmpeg) прекратить работу """
-    # HDS пока не порождает процесс, так что 
-    # stop_signal ему нужен всегда
     cr.stop_signal = True
     
-    if cr.r_t_b.typ == StreamType.HLS:
+    if not is_test_hds(cr):
         os.kill(cr.pid, signal.SIGTERM)
 
 def try_kill_cr(cr):
@@ -771,7 +778,7 @@ if is_test:
     stream_always_lst = ['pervyj']
 else:
     #stream_always_lst = ['pervyj', 'rossia1', 'ntv', 'rossia24', 'peterburg5', 'rbktv']
-    stream_always_lst = ['pervyj']
+    stream_always_lst = get_env_value("stream_always_lst", ['pervyj'])
 
 def stop_inactives():
     """ Прекратить вещание каналов, которые никто не смотрит в течении STOP_PERIOD=10 минут """
