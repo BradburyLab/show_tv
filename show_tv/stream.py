@@ -754,7 +754,7 @@ def on_signal(_signum, _ignored_):
     Globals.stop_streaming = True
     
     stop_lst = []
-    for cr in activity_set.values():
+    for cr in chunk_range_dictionary.values():
         if try_kill_cr(cr):
             stop_lst.append(cr.r_t_b)
     
@@ -790,7 +790,7 @@ def stop_inactives():
         if is_started and r_t not in activity_set and r_t.refname not in stream_always_lst:
             print("Stopping inactive:", r_t)
             for c_r in for_all_resolutions(r_t):
-                try_kill_cr(cr)
+                try_kill_cr(c_r)
             
     activity_set.clear()
     set_stop_timer()
