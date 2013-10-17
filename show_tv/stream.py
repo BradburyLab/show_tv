@@ -20,7 +20,7 @@ import tornado.web
 import tornado.ioloop
 IOLoop = tornado.ioloop.IOLoop.instance()
 
-#import configuration
+import configuration
 from configuration import make_struct, environment, get_env_value 
 import api
 
@@ -41,21 +41,30 @@ class StreamType:
 
 def enum_values(enum):
     return tuple(v for k, v in vars(enum).items() if k.upper() == k)
+
+from collections import namedtuple
     
 # используем namedtuple в качестве ключей, так как 
 # они порождены от tuple => имеют адекватное упорядочивание
-import collections
-RTClass = collections.namedtuple('RTClass', ['refname', 'typ', 'bitrate'])
+RTRClass = namedtuple('RTRClass', ['refname', 'typ', 'bitrate'])
 def r_t_b_key(refname, typ, bitrate):
-    return RTClass(refname, typ, bitrate)
+    return RTRClass(refname, typ, bitrate)
+
+#ResolutionClass = namedtuple('ResolutionClass', ['bitrate', 'out_number'])
+# out_number - номер в таблице адресов, соответ. качеству канала (1 - наилучший)
+streaming_resolutions = get_env_value("resolutions", dict([
+    (360, {"bitrate": 500000,  "out_number": 3}),
+    (576, {"bitrate": 900000,  "out_number": 2}),
+    (720, {"bitrate": 1300000, "out_number": 1}),
+]))
 
 def r_t_b_iter(iteratable):
-    """ Итератор всех пар=ключей (имя канала, тип вещания) по списку
+    """ Итератор всех пар=ключей (имя канала, тип вещания, разрешение) по списку
         каналов iteratable"""
     for refname in iteratable:
         for typ in enum_values(StreamType):
-            for bitrate, bandwidth in environment.bitrates.items():
-                yield r_t_b_key(refname, typ, bitrate)
+            for resolution, item in streaming_resolutions.items():
+                yield r_t_b_key(refname, typ, resolution)
 
 # в Bradbury обычно 3 секунду GOP, а фрагмент:
 # - HLS: 9 секунд
@@ -74,6 +83,9 @@ def out_fpath(chunk_dir, *fname):
     """ Вернуть полный путь до файла в OUT_DIR """
     return o_p.join(OUT_DIR, chunk_dir, *fname)
 
+def get_chunk_fpath(r_t_b, fname):
+    return out_fpath(r_t_b.refname, str(r_t_b.bitrate), fname)
+
 def remove_chunks(rng, cr):
     r_t_b = cr.r_t_b
     typ = r_t_b.typ
@@ -83,7 +95,7 @@ def remove_chunks(rng, cr):
         elif typ == StreamType.HDS:
             fname = hds_chunk_name(cr.frg_tbl, i)
 
-        fname = out_fpath(r_t_b.refname, str(r_t_b.bitrate), fname)
+        fname = get_chunk_fpath(r_t_b, fname)
         os.unlink(fname)
 
 def ready_chk_end(chunk_range):
@@ -112,13 +124,13 @@ def may_serve_pl(chunk_range):
 def emulate_live():
     return is_test and get_env_value("emulate_live", True)
 
-def run_chunker(src_media_path, chunk_dir, on_new_chunk, on_stop_chunking, bitrate, is_batch=False):
+def run_chunker(src_media_path, chunk_dir, on_new_chunk, on_stop_chunking, is_batch=False):
     """ Запустить ffmpeg для фрагментирования файла/исходника src_media_path для
         вещания канала chunk_dir; 
         - on_new_chunk - что делать в момент начала создания нового фрагмента
         - on_stop_chunking - что делать, если ffmpeg закончил работу
         - is_batch - не эмулировать вещание, только для VOD-файлов """
-    o_p.force_makedirs(out_fpath(chunk_dir, bitrate))
+    o_p.force_makedirs(out_fpath(chunk_dir))
     
     ffmpeg_bin = environment.ffmpeg_bin
     
@@ -134,7 +146,7 @@ def run_chunker(src_media_path, chunk_dir, on_new_chunk, on_stop_chunking, bitra
         #cmd += " -segment_list %(out_dir)s/playlist.m3u8" % locals()
         pass
 
-    cmd += " %s" % out_fpath(chunk_dir, bitrate, chunk_tmpl)
+    cmd += " %s" % out_fpath(chunk_dir, chunk_tmpl)
     #print(cmd)
     
     Subprocess = tornado.process.Subprocess
@@ -207,7 +219,8 @@ def test_src_fpath(fname):
 def test_media_path(bitrate):
     # return list_bl_tv.make_path("pervyj.ts")+
     # return test_src_fpath("pervyj-720x406.ts")
-    return test_src_fpath("pervyj-{0}.ts".format(bitrate))
+    fname = "pervyj-{0}.ts".format(bitrate) if get_env_value("multibitrate_testing", True) else "pervyj-720x406.ts"
+    return test_src_fpath(fname)
 
 Globals = make_struct(
     stop_streaming = False
@@ -257,8 +270,10 @@ def do_stop_chunking(chunk_range):
 from tornado import gen
 from app.models.dvr_writer import DVRWriter
 
-dvr_writer = DVRWriter(host=environment.dvr_host)
+def get_dvr_host():
+    return get_env_value("dvr_host", 'localhost')
 
+dvr_writer = DVRWriter(host=get_dvr_host())
 
 def start_hls_chunking(chunk_range):
     chunk_range.start_times = []
@@ -282,8 +297,9 @@ def start_hls_chunking(chunk_range):
         diff = ready_chunks(chunk_range) - max_cnt
 
         # <DVR writer> --------------------------------------------------------
+        do_write_dvr = bool(get_dvr_host()) and get_env_value("do_write_dvr", True)
         if (
-            environment.do_write_dvr == True and
+            do_write_dvr and
             chunk_range.end > 1
         ):
             # индекс того чанка, который готов
@@ -292,9 +308,8 @@ def start_hls_chunking(chunk_range):
             start_seconds = chunk_range.start_times[i-chunk_range.beg]
             # путь до файла с готовым чанком
             fname = hls_chunk_name(i)
-            path_payload = out_fpath(
-                chunk_range.r_t_b.refname,
-                str(chunk_range.r_t_b.bitrate),
+            path_payload = get_chunk_fpath(
+                chunk_range.r_t_b, 
                 fname
             )
             # длина чанка
@@ -321,15 +336,18 @@ def start_hls_chunking(chunk_range):
         do_stop_chunking(chunk_range)
 
     # :REFACTOR:
-    refname = chunk_range.r_t_b.refname
+    r_t_b = chunk_range.r_t_b
+    refname, resolution = r_t_b.refname, r_t_b.bitrate 
     if cast_one_source:
         src_media_path = cast_one_source
     elif is_test:
-        src_media_path = test_media_path(chunk_range.r_t_b.bitrate)
+        src_media_path = test_media_path(resolution)
     else:
-        src_media_path = RefnameDict[refname]
+        out_number = streaming_resolutions[resolution]["out_number"]
+        src_media_path = refname2address_dictionary[refname][out_number]
 
-    chunk_range.pid = run_chunker(src_media_path, refname, on_new_chunk, on_stop_chunking, str(chunk_range.r_t_b.bitrate))
+    chunk_dir = "{0}/{1}".format(refname, resolution)
+    chunk_range.pid = run_chunker(src_media_path, chunk_dir, on_new_chunk, on_stop_chunking)
 
 def chunk_duration(i, chunk_range):
     """ Длительность фрагмента в секундах, float """
@@ -398,6 +416,13 @@ def hds_duration(chunk):
 def hds_chunk_name(frg_tbl, i):
     return "Seg1-Frag%s" % frg_tbl[i][0]
 
+# копипаст shutil._ensure_directory()
+def ensure_directory(path):
+    """Ensure that the parent directory of `path` exists"""
+    dirname = os.path.dirname(path)
+    if not os.path.isdir(dirname):
+        os.makedirs(dirname)
+
 def start_hds_chunking(chunk_range):
     #chunk_range.pid = -1 # эмуляция сущeствования процесса
     import abst
@@ -420,8 +445,9 @@ def start_hds_chunking(chunk_range):
         done_chunk_idx = chunk_range.end-1
         fname = hds_chunk_name(frg_tbl, done_chunk_idx)
         src_fname = o_p.join(test_hds.get_frg_test_dir(), fname)
-        dst_fname = o_p.join(out_fpath(chunk_range.r_t_b.refname), fname)
+        dst_fname = get_chunk_fpath(chunk_range.r_t_b, fname)
         import shutil
+        ensure_directory(dst_fname)
         shutil.copyfile(src_fname, dst_fname)
             
         # :REFACTOR: on_first_chunk_handlers + удаление старых
@@ -488,7 +514,10 @@ def get_f4m(hdl, refname):
     disable_caching(hdl)
     
     is_live = True
-    f4m = gen_hds.gen_f4m(refname, gen_hds.PLAYLIST_ABST, is_live)
+    # :TODO: мультибитрейт + bitrate в gen_f4m() выставлять!
+    s_b = str(720) # брать из streaming_resolutions.keys()
+    url = s_b + "/"
+    f4m = gen_hds.gen_f4m(refname, s_b + ".abst", is_live, url)
     hdl.write(f4m)
     
 #
@@ -498,10 +527,12 @@ def get_f4m(hdl, refname):
 def get_channels():
     """ Прочитать информацию о мультикаст-каналах Bradbury из tv_bl.csv"""
     # 1 - наилучшее качество, 3 - наихудшее
-    num = 1 # 2
-    def mc_out(suffix):
+    out_indexes = [1, 2, 3]
+    def mc_out(suffix, num):
         return "mc_%s_out_%s" % (num, suffix)
-    req_clns = ["refname", mc_out("address"), mc_out("port")]
+    req_clns = ["refname"]
+    for num in out_indexes:
+        req_clns.extend([mc_out(name, num) for name in ["address", "port"]])
 
     rn_dct = {}
     names_dct = {}
@@ -511,28 +542,31 @@ def get_channels():
         for row in tbl:
             def get_val(name):
                 return row[clns[name]]
-            def mc_out_val(name):
-                return get_val(mc_out(name))
             
             refname = get_val("refname")
             if refname and list_bl_tv.is_streaming(row, clns):
-                addr = "udp://%s:%s" % (mc_out_val("address"), mc_out_val("port"))
-                rn_dct[refname] = addr
-                
                 name = list_bl_tv.channel_name(row, clns)
                 names_dct[name] = refname
+                
+                num2addr = {}
+                for num in out_indexes:
+                    def mc_out_val(name):
+                        return get_val(mc_out(name, num))
+                    
+                    num2addr[num] = "udp://%s:%s" % (mc_out_val("address"), mc_out_val("port"))
+                rn_dct[refname] = num2addr
                 
     return rn_dct, names_dct
 
 # словарь "имя канала" => адрес входящий адрес вещания
-RefnameDict = get_channels()[0]
+refname2address_dictionary = get_channels()[0]
 
-# словарь (имя канала, тип вещания) => chunk_range
-ChunkRangeDict = {}
+# словарь (имя канала, тип вещания, разрешение) => chunk_range
+chunk_range_dictionary = {}
 def init_crd():
     # :TODO: создавать по требованию (ленивая инициализация)
-    for r_t_b in r_t_b_iter(RefnameDict):
-        ChunkRangeDict[r_t_b] = make_struct(
+    for r_t_b in r_t_b_iter(refname2address_dictionary):
+        chunk_range_dictionary[r_t_b] = make_struct(
             is_started = False,
             on_first_chunk_handlers = [],
             r_t_b = r_t_b,
@@ -541,13 +575,25 @@ def init_crd():
         )
 init_crd()
 
-ActivitySet = set()
+RTClass = namedtuple('RTClass', ['refname', 'typ'])
+
+def r_t_iter(iteratable):
+    """ Итератор всех пар=ключей (имя канала, тип вещания) по списку
+        каналов iteratable"""
+    for refname in iteratable:
+        for typ in enum_values(StreamType):
+            yield RTClass(refname, typ)
+
+# список вещаемых каналов типа RTClass = (refname, typ) прямо сейчас 
+activity_set = set()
 
 def raise_error(status):
     raise tornado.web.HTTPError(status)
 def make_get_handler(match_pattern, get_handler, is_async=True):
     """ Альтернатива созданию торнадовского обработчика: get_handler - обработка
-        GET-запроса """
+        GET-запроса
+        По умолчанию создается асинхронный обработчик, т.е. дополнительный 
+        декоратор @tornado.web.asynchronous не нужен """
     class Handler(tornado.web.RequestHandler):
         pass
     
@@ -555,20 +601,33 @@ def make_get_handler(match_pattern, get_handler, is_async=True):
     return match_pattern, Handler
 
 def get_cr(r_t_b):
-    chunk_range = ChunkRangeDict.get(r_t_b)
+    chunk_range = chunk_range_dictionary.get(r_t_b)
     if not chunk_range:
         raise_error(404)
     return chunk_range
 
-def force_chunking(chunk_range):
+def for_all_resolutions(r_t):
+    for rls in streaming_resolutions:
+        r_t_b = r_t_b_key(r_t.refname, r_t.typ, rls)
+        yield chunk_range_dictionary[r_t_b]
+
+def force_chunking(r_t):
     """ Начать вещание канала по требованию """
-    if not chunk_range.is_started:
-        start_chunking(chunk_range)
+
+    # стартуем все разрешения - мультибитрейт же
+    res = True
+    for c_r in for_all_resolutions(r_t):
+        if not c_r.is_started:
+            start_chunking(c_r)
+
+        if not c_r.is_started:
+            res = False
+            break
         
-    return chunk_range.is_started
+    return res
 
 from app.models.dvr_reader import DVRReader
-dvr_reader = DVRReader(host=environment.dvr_host)
+dvr_reader = DVRReader(host=get_dvr_host())
 
 @tornado.web.asynchronous
 @gen.engine
@@ -585,24 +644,23 @@ def get_dvr(hdl, asset, startstamp, duration, bitrate):
 
 from tornado import template
 
-@tornado.web.asynchronous
+def check_dvr_pars(startstamp, duration):
+    if (startstamp is None) != (duration is None):
+        raise_error(400)
+
 def get_playlist_multibitrate(hdl, asset, startstamp=None, duration=None):
     hdl.set_header("Content-Type", "application/vnd.apple.mpegurl")
 
-    if (
-        startstamp is None and duration is not None or
-        startstamp is not None and duration is None
-    ):
-        raise_error(400)
+    check_dvr_pars(startstamp, duration)
 
     loader = template.Loader(os.path.join(
-        os.path.abspath(os.path.dirname(__file__)),
+        configuration.cur_directory,
         'app',
         'templates',
     ))
     playlist = loader.load('multibitrate/playlist.m3u8').generate(
         asset=asset,
-        bitrates=environment.bitrates,
+        resolutions=streaming_resolutions,
     )
 
     hdl.finish(playlist)
@@ -635,28 +693,25 @@ def get_playlist_dvr(hdl, asset, bitrate, extension, startstamp, duration):
 
 Fmt2Typ = {
     "m3u8": StreamType.HLS,
-    gen_hds.PLAYLIST_ABST: StreamType.HDS,
+    "abst": StreamType.HDS,
 }
 
 def get_playlist_singlebitrate(hdl, asset, bitrate, extension, startstamp=None, duration=None):
     """ Обработчик выдачи плейлистов playlist.m3u8 и manifest.f4m """
     bitrate = int(bitrate)
 
-    if (
-        startstamp is None and duration is not None or
-        startstamp is not None and duration is None
-    ):
-        raise_error(400)
+    check_dvr_pars(startstamp, duration)
 
     if startstamp is not None and duration is not None:
         get_playlist_dvr(hdl, asset, bitrate, extension, startstamp, duration)
         return
 
     typ = Fmt2Typ[extension]
-    
     r_t_b = r_t_b_key(asset, typ, bitrate)
     chunk_range = get_cr(r_t_b)
-    if not force_chunking(chunk_range):
+
+    r_t = RTClass(asset, typ)
+    if not force_chunking(r_t):
         # например, из-за сигнала остановить сервер
         raise_error(503)
 
@@ -669,7 +724,7 @@ def get_playlist_singlebitrate(hdl, asset, bitrate, extension, startstamp=None, 
     else:
         chunk_range.on_first_chunk_handlers.append(functools.partial(serve_pl, hdl, chunk_range))
         
-    ActivitySet.add(r_t_b)
+    activity_set.add(r_t)
 
 #
 # остановка сервера
@@ -685,6 +740,12 @@ def kill_cr(cr):
     if cr.r_t_b.typ == StreamType.HLS:
         os.kill(cr.pid, signal.SIGTERM)
 
+def try_kill_cr(cr):
+    is_started = cr.is_started
+    if is_started:
+        kill_cr(cr)
+    return is_started
+
 def on_signal(_signum, _ignored_):
     """ Прекратить работу сервера show_tv по Ctrl+C """
     print("Request to stop ...")
@@ -693,9 +754,8 @@ def on_signal(_signum, _ignored_):
     Globals.stop_streaming = True
     
     stop_lst = []
-    for cr in ChunkRangeDict.values():
-        if cr.is_started:
-            kill_cr(cr)
+    for cr in activity_set.values():
+        if try_kill_cr(cr):
             stop_lst.append(cr.r_t_b)
     
     if stop_lst:
@@ -715,12 +775,24 @@ else:
 
 def stop_inactives():
     """ Прекратить вещание каналов, которые никто не смотрит в течении STOP_PERIOD=10 минут """
-    for r_t_b, cr in ChunkRangeDict.items():
-        if cr.is_started and r_t_b not in ActivitySet and r_t_b.refname not in stream_always_lst:
-            print("Stopping inactive:", r_t_b)
-            kill_cr(cr)
+    
+    #for r_t_b, cr in chunk_range_dictionary.items():
+        #if cr.is_started and r_t_b not in activity_set and r_t_b.refname not in stream_always_lst:
+            #print("Stopping inactive:", r_t_b)
+            #kill_cr(cr)
+    for r_t in r_t_iter(refname2address_dictionary):
+        is_started = False
+        for c_r in for_all_resolutions(r_t):
+            if c_r.is_started:
+                is_started = True
+                break
+        
+        if is_started and r_t not in activity_set and r_t.refname not in stream_always_lst:
+            print("Stopping inactive:", r_t)
+            for c_r in for_all_resolutions(r_t):
+                try_kill_cr(cr)
             
-    ActivitySet.clear()
+    activity_set.clear()
     set_stop_timer()
 
 STOP_PERIOD = 600 # 10 минут
@@ -742,12 +814,14 @@ def main():
     #     # для Tornado, чтоб на каждый запрос отчитывался
     #     logger = logging.getLogger()
     #     logger.setLevel(logging.INFO)
-        
-    for r_t_b in r_t_b_iter(stream_always_lst):
-        # :TODO: по умолчанию HDS пока не готово
-        use_hds = get_env_value("use_hds", False)
-        if use_hds or (r_t_b.typ != StreamType.HDS):
-            start_chunking(ChunkRangeDict[r_t_b])
+
+            
+    for refname in stream_always_lst:
+        for typ in enum_values(StreamType):
+            # :TODO: по умолчанию HDS пока не готово
+            use_hds = get_env_value("use_hds", False)
+            if use_hds or (typ != StreamType.HDS):
+                force_chunking(RTClass(refname, typ))
              
     for sig in [signal.SIGTERM, signal.SIGINT]:
         signal.signal(sig, on_signal)
@@ -755,17 +829,17 @@ def main():
     
     # обработчики
     handlers = [
-        make_get_handler(r"^/(?P<asset>\w+)/?(?P<startstamp>\d+)/?(?P<duration>\d+)?/smil.m3u8", get_playlist_multibitrate),
-        make_get_handler(r"^/(?P<asset>[-\w]+)/?(?P<startstamp>\d+)?/(?P<duration>\d+)/?(?P<bitrate>\d+)?\.(?P<extension>m3u8|abst)", get_playlist_singlebitrate),
+        make_get_handler(r"^/(?P<asset>[-\w]+)/(?:(?P<startstamp>\d+)/(?P<duration>\d+)/)?smil.m3u8", get_playlist_multibitrate),
+        make_get_handler(r"^/(?P<asset>[-\w]+)/(?:(?P<startstamp>\d+)/(?P<duration>\d+)/)?(?P<bitrate>\d+)\.(?P<extension>m3u8|abst)", get_playlist_singlebitrate),
         # HDS: выдаем плейлист отдельно от манифеста, иначе клиент плейлист не обновляет => live не играет
         # :TODO: нужна проверка существования канала такая же, что и в get_playlist()
-        make_get_handler(r"/(?P<refname>[-\w]+)/manifest.f4m", get_f4m, False),
-        make_get_handler(r"^/(?P<asset>\w+)/(?P<startstamp>\d+)/(?P<duration>\d+)/(?P<bitrate>\d+)\.ts", get_dvr),
+        make_get_handler(r"/(?P<refname>[-\w]+)/smil.f4m", get_f4m, False),
+        make_get_handler(r"^/(?P<asset>[-\w]+)/(?P<startstamp>\d+)/(?P<duration>\d+)/(?P<bitrate>\d+)\.ts", get_dvr),
     ]
     def make_static_handler(chunk_dir):
         return r"/%s/(.*)" % chunk_dir, tornado.web.StaticFileHandler, {"path": out_fpath(chunk_dir)}
         
-    for refname in RefnameDict:
+    for refname in refname2address_dictionary:
         handlers.append(
             make_static_handler(refname),
         )

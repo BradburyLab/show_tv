@@ -1,6 +1,6 @@
 #EXTM3U
 #EXT-X-VERSION:3
-{% for bitrate, bandwidth in bitrates.items() %}
-#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH={{ bandwidth }}
-{{ bitrate }}.m3u8
+{% for resolution, item in resolutions.items() %}
+#EXT-X-STREAM-INF:PROGRAM-ID=1,BANDWIDTH={{ item["bitrate"] }}
+{{ resolution }}.m3u8
 {% end %}

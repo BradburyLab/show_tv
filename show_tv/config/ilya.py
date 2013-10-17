@@ -15,3 +15,9 @@ ffmpeg_bin = os.path.expanduser("~/opt/src/ffmpeg/git/ffmpeg/objs/inst/bin/ffmpe
 use_hds = True # False # 
 verbose_tornado = is_test
 
+# по умолчанию DVR включен и хост равен "localhost"; None полностью
+# отключает
+dvr_host = None
+# при тестировании: разные файлы для разных битрейтов, а не один
+multibitrate_testing = False
+
