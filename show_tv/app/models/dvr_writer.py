@@ -1,6 +1,6 @@
 # coding: utf-8
 import os
-import pyaio
+# import pyaio
 import struct
 
 from tornado import gen
@@ -73,24 +73,32 @@ class DVRWriter(DVRBase):
             payloadlen,
         )
 
-        fd = os.open(path_payload, os.O_RDONLY)
+        with open(path_payload, 'rb') as f:
+            yield [
+                gen.Task(self.c.write, pack),
+                gen.Task(self.c.write, metadata),
+                gen.Task(self.c.write, f.read()),
+            ]
+        self.l.debug('[DVRWriter] write finish <<<<<<<<<<<<<<<\n')
 
-        @gen.engine
-        def on_read(buf, rcode, errno):
-            os.close(fd)
-            if rcode > 0:
-                yield gen.Task(
-                    self.c.write,
-                    b''.join([
-                        pack,
-                        metadata,
-                        buf,
-                    ])
-                ) 
-            elif rcode == 0:
-                print("EOF")
-            else:
-                print("Error: %d" % errno)
-            self.l.debug('[DVRWriter] write finish <<<<<<<<<<<<<<<\n')
+        # fd = os.open(path_payload, os.O_RDONLY)
 
-        pyaio.aio_read(fd, 0, payloadlen, on_read)
+        # @gen.engine
+        # def on_read(buf, rcode, errno):
+        #     os.close(fd)
+        #     if rcode > 0:
+        #         yield gen.Task(
+        #             self.c.write,
+        #             b''.join([
+        #                 pack,
+        #                 metadata,
+        #                 buf,
+        #             ])
+        #         ) 
+        #     elif rcode == 0:
+        #         print("EOF")
+        #     else:
+        #         print("Error: %d" % errno)
+        #     self.l.debug('[DVRWriter] write finish <<<<<<<<<<<<<<<\n')
+
+        # pyaio.aio_read(fd, 0, payloadlen, on_read)
