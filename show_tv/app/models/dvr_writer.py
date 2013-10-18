@@ -22,8 +22,8 @@ class DVRWriter(DVRBase):
     ):
         '''
         '''
-        name    = r_t_b.refname,
-        bitrate = r_t_b.bitrate,
+        name    = r_t_b.refname
+        bitrate = r_t_b.bitrate
         
         if not hasattr(self, 'c'):
             yield gen.Task(self.reconnect)
