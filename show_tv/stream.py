@@ -147,9 +147,9 @@ def run_chunker(src_media_path, typ, chunk_dir, on_new_chunk, on_stop_chunking, 
         ffmpeg_bin += " -v debug"
         chunk_options = "-codec copy -map 0 -f ssegment -segment_time %s" % std_chunk_dur 
     else:
-        chunk_options = "-codec copy -bsf:a aac_adtstoasc" 
+        #chunk_options = "-codec copy -bsf:a aac_adtstoasc" 
         chunk_options = "-vcodec copy -strict experimental -c:a aac -ac 2 -ar 44100" 
-        #chunk_options += " -f hds -hds_time %s" % std_chunk_dur
+        chunk_options += " -f hds -hds_time %s" % std_chunk_dur
     cmd = "%(ffmpeg_bin)s %(in_opts)s %(chunk_options)s" % locals()
     if is_test:
         #cmd += " -segment_list %(out_dir)s/playlist.m3u8" % locals()
