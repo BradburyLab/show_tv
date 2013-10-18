@@ -304,7 +304,8 @@ def start_ffmpeg_chunking(chunk_range):
         do_write_dvr = bool(get_dvr_host()) and get_env_value("do_write_dvr", True)
         if (
             do_write_dvr and
-            chunk_range.end > 1
+            chunk_range.end > 1 and
+            chunk_range.r_t_b.typ == StreamType.HLS
         ):
             # индекс того чанка, который готов
             i = chunk_range.end-2
