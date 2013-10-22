@@ -7,6 +7,11 @@ from tornado import gen
 
 from .dvr_base import DVRBase
 
+import configuration
+
+use_sendfile = configuration.get_env_value("use_sendfile", True)
+if use_sendfile:
+    from sendfile import sendfile
 
 class DVRWriter(DVRBase):
     def __init__(self, host='127.0.0.1', port=6451):
@@ -73,12 +78,16 @@ class DVRWriter(DVRBase):
             payloadlen,
         )
 
-        with open(path_payload, 'rb') as f:
-            yield [
-                gen.Task(self.c.write, pack),
-                gen.Task(self.c.write, metadata),
-                gen.Task(self.c.write, f.read()),
-            ]
+        yield [
+            gen.Task(self.c.write, pack),
+            gen.Task(self.c.write, metadata),
+        ]
+        
+        if use_sendfile:
+            yield gen.Task(sendfile, self.c, path_payload, payloadlen)
+        else:
+            with open(path_payload, 'rb') as f:
+                yield gen.Task(self.c.write, f.read())
         self.l.debug('[DVRWriter] write finish <<<<<<<<<<<<<<<\n')
 
         # fd = os.open(path_payload, os.O_RDONLY)
