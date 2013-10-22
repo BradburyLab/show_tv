@@ -9,7 +9,7 @@ from .dvr_base import DVRBase
 
 import configuration
 
-use_sendfile = configuration.get_env_value("use_sendfile", True)
+use_sendfile = configuration.get_env_value("use_sendfile", False)
 if use_sendfile:
     from sendfile import sendfile
 
