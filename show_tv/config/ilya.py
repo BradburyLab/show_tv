@@ -18,7 +18,7 @@ verbose_tornado = is_test
 
 # по умолчанию DVR включен и хост равен "localhost"; None полностью
 # отключает
-dvr_host = "127.0.0.1" # None # 
+dvr_host = None # "127.0.0.1" # 
 # при тестировании: разные файлы для разных битрейтов, а не один
 multibitrate_testing = False
 
