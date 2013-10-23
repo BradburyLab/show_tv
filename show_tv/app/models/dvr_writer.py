@@ -8,6 +8,7 @@ from tornado import gen
 from .dvr_base import DVRBase
 
 import configuration
+import api
 
 use_sendfile = configuration.get_env_value("use_sendfile", False)
 if use_sendfile:
@@ -27,7 +28,7 @@ class DVRWriter(DVRBase):
     ):
         '''
         '''
-        name    = r_t_b.refname
+        name    = api.asset_name(r_t_b)
         bitrate = r_t_b.bitrate
         
         if not hasattr(self, 'c'):

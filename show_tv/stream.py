@@ -304,8 +304,7 @@ def start_ffmpeg_chunking(chunk_range):
         do_write_dvr = bool(get_dvr_host()) and get_env_value("do_write_dvr", True)
         if (
             do_write_dvr and
-            chunk_range.end > 1 and
-            chunk_range.r_t_b.typ == StreamType.HLS
+            chunk_range.end > 1
         ):
             # индекс того чанка, который готов
             i = chunk_range.end-2
@@ -677,13 +676,14 @@ def get_playlist_multibitrate(hdl, asset, startstamp=None, duration=None):
 
     hdl.finish(playlist)
 
-@tornado.web.asynchronous
 @gen.engine
-def get_playlist_dvr(hdl, asset, bitrate, extension, startstamp, duration):
+def get_playlist_dvr(hdl, r_t_b, startstamp, duration):
     hdl.set_header('Content-Type', 'application/vnd.apple.mpegurl')
+    
+    bitrate = r_t_b.bitrate
     playlist_data = yield gen.Task(
         dvr_reader.range,
-        asset=asset,
+        asset=api.asset_name(r_t_b),
         bitrate=bitrate,
         startstamp=startstamp,
         duration=duration,
@@ -692,7 +692,7 @@ def get_playlist_dvr(hdl, asset, bitrate, extension, startstamp, duration):
     if playlist_data:
         playlist = dvr_reader.generate_playlist(
             host=hdl.request.host,
-            asset=asset,
+            asset=r_t_b.refname,
             startstamps_durations=[
                 (r['startstamp'], r['duration'])
                 for r in playlist_data
@@ -714,12 +714,12 @@ def get_playlist_singlebitrate(hdl, asset, bitrate, extension, startstamp=None, 
 
     check_dvr_pars(startstamp, duration)
 
-    if startstamp is not None and duration is not None:
-        get_playlist_dvr(hdl, asset, bitrate, extension, startstamp, duration)
-        return
-
     typ = Fmt2Typ[extension]
     r_t_b = r_t_b_key(asset, typ, bitrate)
+    if startstamp is not None and duration is not None:
+        get_playlist_dvr(hdl, r_t_b, startstamp, duration)
+        return
+
     chunk_range = get_cr(r_t_b)
 
     r_t = RTClass(asset, typ)
