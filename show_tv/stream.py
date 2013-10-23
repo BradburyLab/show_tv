@@ -523,10 +523,13 @@ def get_f4m(hdl, refname):
     disable_caching(hdl)
     
     is_live = True
-    # :TODO: мультибитрейт + bitrate в gen_single_bitrate_f4m() выставлять!
-    s_b = str(720) # брать из streaming_resolutions.keys()
-    url = s_b + "/"
-    f4m = gen_hds.gen_single_bitrate_f4m(refname, s_b + ".abst", is_live, url)
+    #s_b = str(720) # брать из streaming_resolutions.keys()
+    #url = s_b + "/"
+    #f4m = gen_hds.gen_single_bitrate_f4m(refname, s_b + ".abst", is_live, url)
+    medias = []
+    for rsl, item in streaming_resolutions.items():
+        medias.append(gen_hds.gen_f4m_media(refname, "%s.abst" % rsl, item["bitrate"], "%s/" % rsl))
+    f4m = gen_hds.gen_f4m(refname, is_live, "\n".join(medias))
     hdl.write(f4m)
     
 #
