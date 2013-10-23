@@ -78,16 +78,18 @@ class DVRWriter(DVRBase):
             payloadlen,
         )
 
-        yield [
-            gen.Task(self.c.write, pack),
-            gen.Task(self.c.write, metadata),
-        ]
+        #yield [
+            #gen.Task(self.c.write, pack),
+            #gen.Task(self.c.write, metadata),
+        #]
+        self.c.write(pack)
+        self.c.write(metadata)
         
         if use_sendfile:
-            yield gen.Task(sendfile, self.c, path_payload, payloadlen)
+            sendfile(self.c, path_payload, payloadlen)
         else:
             with open(path_payload, 'rb') as f:
-                yield gen.Task(self.c.write, f.read())
+                self.c.write(f.read())
         self.l.debug('[DVRWriter] write finish <<<<<<<<<<<<<<<\n')
 
         # fd = os.open(path_payload, os.O_RDONLY)
