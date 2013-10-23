@@ -7,9 +7,12 @@ class StreamType:
 
 # :KLUDGE: пока DVR-хранилка не знает о типе вещания => храним в asset'е
 DVR_SUFFEXES = {
-    "hls": StreamType.HLS,
-    "hds": StreamType.HDS,
+    StreamType.HLS: "hls",
+    StreamType.HDS: "hds",
 }
 
+def asset_name_rt(refname, typ):
+    return "{0}_{1}".format(refname, DVR_SUFFEXES[typ])
+
 def asset_name(r_t_b):
-    return "{0}_{1}".format(r_t_b.refname, DVR_SUFFEXES[r_t_b.typ])
+    return asset_name_rt(r_t_b.refname, DVR_SUFFEXES[r_t_b.typ])

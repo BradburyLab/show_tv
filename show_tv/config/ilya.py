@@ -3,7 +3,7 @@
 # для тестирования мультикаста "на живую"
 #cast_one_source = "udp://239.0.0.5:1234" # 239 - после транскодера
 #cast_one_source = "udp://235.3.3.3:8888" # некий tsplay
-#cast_one_source = "udp://236.1.1.1:1234"  # cразу после "декриптора"
+#cast_one_source = "udp://236.1.1.1:1234" # cразу после "декриптора"
 
 is_test = True
 #emulate_live = False

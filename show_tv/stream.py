@@ -501,19 +501,22 @@ def disable_caching(hdl):
         
     # :TRICKY: 1tv ставит еще Expires, Last-Modified, Vary, Accept-Ranges,
     # Age, но полагаю, что это к делу не относится (OSMFу все равно)
-    
-def serve_hds_pl(hdl, chunk_range):
+
+def serve_hds_abst(hdl, frg_tbl, is_live):
     hdl.set_header("Content-Type", "binary/octet")
     disable_caching(hdl)
     
+    abst = gen_hds.gen_abst(frg_tbl, is_live)
+    
+    hdl.write(abst)
+    hdl.finish()
+    
+def serve_hds_pl(hdl, chunk_range):
     if real_hds_chunking:
         lst = gen_hds.make_frg_tbl(chunk_range.start_times, chunk_range.beg)
     else:
         lst = chunk_range.frg_tbl[chunk_range.beg:ready_chk_end(chunk_range)]
-    abst = gen_hds.gen_abst(lst, True)
-    
-    hdl.write(abst)
-    hdl.finish()
+    serve_hds_abst(hdl, lst, True)
 
 def get_f4m(hdl, refname):
     # согласно FlashMediaManifestFileFormatSpecification.pdf
@@ -642,12 +645,12 @@ dvr_reader = DVRReader(host=get_dvr_host())
 
 @tornado.web.asynchronous
 @gen.engine
-def get_dvr(hdl, asset, startstamp, duration, bitrate):
+def get_hls_dvr(hdl, asset, startstamp, duration, bitrate):
     startstamp = int(startstamp)
     bitrate = int(bitrate)
     payload = yield gen.Task(
         dvr_reader.load,
-        asset=asset,
+        asset=api.asset_name_rt(asset, StreamType.HLS),
         bitrate=bitrate,
         startstamp=startstamp,
     )
@@ -659,27 +662,32 @@ def check_dvr_pars(startstamp, duration):
     if (startstamp is None) != (duration is None):
         raise_error(400)
 
-def get_playlist_multibitrate(hdl, asset, startstamp=None, duration=None):
-    hdl.set_header("Content-Type", "application/vnd.apple.mpegurl")
-
+def get_playlist_multibitrate(hdl, asset, extension, startstamp=None, duration=None):
     check_dvr_pars(startstamp, duration)
 
-    loader = template.Loader(os.path.join(
-        configuration.cur_directory,
-        'app',
-        'templates',
-    ))
-    playlist = loader.load('multibitrate/playlist.m3u8').generate(
-        asset=asset,
-        resolutions=streaming_resolutions,
-    )
+    typ = Fmt2Typ[extension]
+    if typ == StreamType.HLS:
+        hdl.set_header("Content-Type", "application/vnd.apple.mpegurl")
+    
+        loader = template.Loader(os.path.join(
+            configuration.cur_directory,
+            'app',
+            'templates',
+        ))
+        playlist = loader.load('multibitrate/playlist.m3u8').generate(
+            asset=asset,
+            resolutions=streaming_resolutions,
+        )
+        hdl.write(playlist)
+    elif typ == StreamType.HDS:
+        get_f4m(hdl, asset)
+    else:
+        assert False
 
-    hdl.finish(playlist)
+    hdl.finish()
 
 @gen.engine
 def get_playlist_dvr(hdl, r_t_b, startstamp, duration):
-    hdl.set_header('Content-Type', 'application/vnd.apple.mpegurl')
-    
     bitrate = r_t_b.bitrate
     playlist_data = yield gen.Task(
         dvr_reader.range,
@@ -690,22 +698,29 @@ def get_playlist_dvr(hdl, r_t_b, startstamp, duration):
     )
 
     if playlist_data:
-        playlist = dvr_reader.generate_playlist(
-            host=hdl.request.host,
-            asset=r_t_b.refname,
-            startstamps_durations=[
-                (r['startstamp'], r['duration'])
-                for r in playlist_data
-            ],
-            bitrate=bitrate,
-        )
-        hdl.finish(playlist)
+        if r_t_b.typ == StreamType.HLS:
+            hdl.set_header('Content-Type', 'application/vnd.apple.mpegurl')
+            playlist = dvr_reader.generate_playlist(
+                host=hdl.request.host,
+                asset=r_t_b.refname,
+                startstamps_durations=[
+                    (r['startstamp'], r['duration'])
+                    for r in playlist_data
+                ],
+                bitrate=bitrate,
+            )
+            hdl.finish(playlist)
+        elif r_t_b.typ == StreamType.HDS:
+            serve_hds_abst(hdl, lst, False)
+        else:
+            assert False
     else:
         raise_error(404)
 
 Fmt2Typ = {
     "m3u8": StreamType.HLS,
     "abst": StreamType.HDS,
+    "f4m":  StreamType.HDS,
 }
 
 def get_playlist_singlebitrate(hdl, asset, bitrate, extension, startstamp=None, duration=None):
@@ -840,12 +855,11 @@ def main():
     
     # обработчики
     handlers = [
-        make_get_handler(r"^/(?P<asset>[-\w]+)/(?:(?P<startstamp>\d+)/(?P<duration>\d+)/)?smil.m3u8", get_playlist_multibitrate),
-        make_get_handler(r"^/(?P<asset>[-\w]+)/(?:(?P<startstamp>\d+)/(?P<duration>\d+)/)?(?P<bitrate>\d+)\.(?P<extension>m3u8|abst)", get_playlist_singlebitrate),
-        # HDS: выдаем плейлист отдельно от манифеста, иначе клиент плейлист не обновляет => live не играет
         # :TODO: нужна проверка существования канала такая же, что и в get_playlist()
-        make_get_handler(r"/(?P<refname>[-\w]+)/smil.f4m", get_f4m, False),
-        make_get_handler(r"^/(?P<asset>[-\w]+)/(?P<startstamp>\d+)/(?P<duration>\d+)/(?P<bitrate>\d+)\.ts", get_dvr),
+        # :REFACTOR: куча копипасты
+        make_get_handler(r"^/(?P<asset>[-\w]+)/(?:(?P<startstamp>\d+)/(?P<duration>\d+)/)?smil.(?P<extension>m3u8|f4m)", get_playlist_multibitrate),
+        make_get_handler(r"^/(?P<asset>[-\w]+)/(?:(?P<startstamp>\d+)/(?P<duration>\d+)/)?(?P<bitrate>\d+)\.(?P<extension>m3u8|abst)", get_playlist_singlebitrate),
+        make_get_handler(r"^/(?P<asset>[-\w]+)/(?P<startstamp>\d+)/(?P<duration>\d+)/(?P<bitrate>\d+)\.ts", get_hls_dvr),
     ]
     def make_static_handler(chunk_dir):
         return r"/%s/(.*)" % chunk_dir, tornado.web.StaticFileHandler, {"path": out_fpath(chunk_dir)}
