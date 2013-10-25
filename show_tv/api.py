@@ -39,5 +39,5 @@ def asset_name_rt(refname, typ):
     return "{0}_{1}".format(refname, DVR_SUFFEXES[typ])
 
 def asset_name(r_t_b):
-    return asset_name_rt(r_t_b.refname, DVR_SUFFEXES[r_t_b.typ])
+    return asset_name_rt(r_t_b.refname, r_t_b.typ)
 

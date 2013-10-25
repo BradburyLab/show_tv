@@ -412,10 +412,7 @@ def serve_hls_pl(hdl, chunk_range):
 # HDS
 #
 
-def test_hds_ts(chunk):
-    return chunk[1]
-def test_hds_duration(chunk):
-    return chunk[2]
+import gen_hds
 
 def hds_chunk_name(i):
     return "Seg1-Frag%s" % (i+1)
@@ -432,7 +429,9 @@ def ensure_directory(path):
 def start_test_hds_chunking(chunk_range):
     import abst
     import test_hds
-    chunk_range.frg_tbl = frg_tbl = test_hds.get_frg_tbl()
+    frg_base, frg_tbl = test_hds.get_frg_tbl()
+    assert frg_base == 1
+    chunk_range.frg_tbl = frg_tbl
 
     # не принимаем пустые таблицы
     assert frg_tbl
@@ -440,7 +439,7 @@ def start_test_hds_chunking(chunk_range):
 
     import timeit
     timer_func = timeit.default_timer
-    streaming_start = test_hds_ts(first_chunk) - timer_func()
+    streaming_start = gen_hds.get_frg_ts(first_chunk) - timer_func()
 
     def on_new_chunk():
         chunk_range.end += 1
@@ -480,14 +479,12 @@ def start_test_hds_chunking(chunk_range):
             frg = frg_tbl[next_idx]
 
             if not is_test or emulate_live():
-                timeout = test_hds_ts(frg) - streaming_start - timer_func()
+                timeout = gen_hds.get_frg_ts(frg) - streaming_start - timer_func()
                 IOLoop.add_timeout(datetime.timedelta(seconds=timeout), on_new_chunk)
             else:
                 IOLoop.add_callback(on_new_chunk)
 
     on_new_chunk()
-
-import gen_hds
 
 def disable_caching(hdl):
     # судя по всему, для live нужно ставить эти заголовки, иначе плейер
@@ -502,21 +499,23 @@ def disable_caching(hdl):
     # :TRICKY: 1tv ставит еще Expires, Last-Modified, Vary, Accept-Ranges,
     # Age, но полагаю, что это к делу не относится (OSMFу все равно)
 
-def serve_hds_abst(hdl, frg_tbl, is_live):
+def serve_hds_abst(hdl, frg_base, frg_tbl, is_live):
     hdl.set_header("Content-Type", "binary/octet")
     disable_caching(hdl)
     
-    abst = gen_hds.gen_abst(frg_tbl, is_live)
+    abst = gen_hds.gen_abst(frg_base, frg_tbl, is_live)
     
     hdl.write(abst)
     hdl.finish()
     
 def serve_hds_pl(hdl, chunk_range):
     if real_hds_chunking:
-        lst = gen_hds.make_frg_tbl(chunk_range.start_times, chunk_range.beg)
+        lst = gen_hds.make_frg_tbl(chunk_range.start_times)
     else:
         lst = chunk_range.frg_tbl[chunk_range.beg:ready_chk_end(chunk_range)]
-    serve_hds_abst(hdl, lst, True)
+
+    frg_base = gen_hds.make_frg_base(chunk_range.beg)
+    serve_hds_abst(hdl, frg_base, lst, True)
 
 def get_f4m(hdl, refname):
     # согласно FlashMediaManifestFileFormatSpecification.pdf
