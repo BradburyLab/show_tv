@@ -232,14 +232,14 @@ def test_media_path(bitrate):
     fname = "pervyj-{0}.ts".format(bitrate) if get_env_value("multibitrate_testing", True) else "pervyj-720x406.ts"
     return test_src_fpath(fname)
 
-Globals = make_struct(
+global_variables = make_struct(
     stop_streaming = False
 )
 
 def start_chunking(chunk_range):
     """ Запустить процесс вещания канала chunk_range.r_t_b.refname c типом
         вещания chunk_range.r_t_b.typ (HLS или HDS) """
-    if Globals.stop_streaming:
+    if global_variables.stop_streaming:
         return
     
     # инициализация
@@ -263,8 +263,8 @@ def do_stop_chunking(chunk_range):
     if chunk_range.stop_signal:
         chunk_range.stop_signal = False
 
-    if Globals.stop_streaming:
-        stop_lst = Globals.stop_lst
+    if global_variables.stop_streaming:
+        stop_lst = global_variables.stop_lst
         stop_lst.discard(chunk_range.r_t_b)
         if not stop_lst:
             IOLoop.stop()
@@ -326,6 +326,9 @@ def start_ffmpeg_chunking(chunk_range):
                 path_payload=path_payload,
                 metadata=b'{"metadata_key": "metadata_value"}',
             )
+            
+            # :TRICKY: tornado умеет генерить ссылки только для простых случаев
+            #print(global_variables.application.reverse_url("playlist_multibitrate", chunk_range.r_t_b.refname, 1, 1, "f4m"))
         # ------------------------------------------------------- </DVR writer>
 
         if diff > 0:
@@ -499,10 +502,11 @@ def disable_caching(hdl):
     # :TRICKY: 1tv ставит еще Expires, Last-Modified, Vary, Accept-Ranges,
     # Age, но полагаю, что это к делу не относится (OSMFу все равно)
 
-def serve_hds_abst(hdl, frg_base, frg_tbl, is_live):
+def serve_hds_abst(hdl, start_idx, frg_tbl, is_live):
     hdl.set_header("Content-Type", "binary/octet")
     disable_caching(hdl)
     
+    frg_base = gen_hds.make_frg_base(start_idx)
     abst = gen_hds.gen_abst(frg_base, frg_tbl, is_live)
     
     hdl.write(abst)
@@ -514,8 +518,7 @@ def serve_hds_pl(hdl, chunk_range):
     else:
         lst = chunk_range.frg_tbl[chunk_range.beg:ready_chk_end(chunk_range)]
 
-    frg_base = gen_hds.make_frg_base(chunk_range.beg)
-    serve_hds_abst(hdl, frg_base, lst, True)
+    serve_hds_abst(hdl, chunk_range.beg, lst, True)
 
 def get_f4m(hdl, refname):
     # согласно FlashMediaManifestFileFormatSpecification.pdf
@@ -602,7 +605,8 @@ activity_set = set()
 
 def raise_error(status):
     raise tornado.web.HTTPError(status)
-def make_get_handler(match_pattern, get_handler, is_async=True):
+
+def make_get_handler(match_pattern, get_handler, is_async=True, name=None):
     """ Альтернатива созданию торнадовского обработчика: get_handler - обработка
         GET-запроса
         По умолчанию создается асинхронный обработчик, т.е. дополнительный 
@@ -611,7 +615,7 @@ def make_get_handler(match_pattern, get_handler, is_async=True):
         pass
     
     Handler.get = tornado.web.asynchronous(get_handler) if is_async else get_handler
-    return match_pattern, Handler
+    return tornado.web.url(match_pattern, Handler, name=name)
 
 def get_cr(r_t_b):
     chunk_range = chunk_range_dictionary.get(r_t_b)
@@ -642,18 +646,23 @@ def force_chunking(r_t):
 from app.models.dvr_reader import DVRReader
 dvr_reader = DVRReader(host=get_dvr_host())
 
-@tornado.web.asynchronous
 @gen.engine
-def get_hls_dvr(hdl, asset, startstamp, duration, bitrate):
-    startstamp = int(startstamp)
-    bitrate = int(bitrate)
+def serve_dvr_chunk(hdl, r_t_b, startstamp, callback=None):
     payload = yield gen.Task(
         dvr_reader.load,
-        asset=api.asset_name_rt(asset, StreamType.HLS),
-        bitrate=bitrate,
+        asset=api.asset_name(r_t_b),
+        bitrate=r_t_b.bitrate,
         startstamp=startstamp,
     )
     hdl.finish(payload)
+    
+    if callback:
+        callback(None)
+
+def get_hls_dvr(hdl, asset, startstamp, duration, bitrate):
+    r_t_b = r_t_b_key(asset, StreamType.HLS, int(bitrate))
+    startstamp = int(startstamp)
+    serve_dvr_chunk(hdl, r_t_b, startstamp)
 
 from tornado import template
 
@@ -685,17 +694,25 @@ def get_playlist_multibitrate(hdl, asset, extension, startstamp=None, duration=N
 
     hdl.finish()
 
+def ts2sec(ts):
+    # хранилка держит timestamp'ы в миллисекундах
+    return ts / 1000.0
+
 @gen.engine
-def get_playlist_dvr(hdl, r_t_b, startstamp, duration):
-    bitrate = r_t_b.bitrate
+def load_dvr_pl(r_t_b, startstamp, duration, callback):
     playlist_data = yield gen.Task(
         dvr_reader.range,
         asset=api.asset_name(r_t_b),
-        bitrate=bitrate,
+        bitrate=r_t_b.bitrate,
         startstamp=startstamp,
         duration=duration,
     )
+    callback(playlist_data)
 
+@gen.engine
+def get_playlist_dvr(hdl, r_t_b, startstamp, duration):
+    playlist_data = yield gen.Task(load_dvr_pl, r_t_b, startstamp, duration)
+        
     if playlist_data:
         if r_t_b.typ == StreamType.HLS:
             hdl.set_header('Content-Type', 'application/vnd.apple.mpegurl')
@@ -703,18 +720,40 @@ def get_playlist_dvr(hdl, r_t_b, startstamp, duration):
                 host=hdl.request.host,
                 asset=r_t_b.refname,
                 startstamps_durations=[
-                    (r['startstamp'], r['duration'])
+                    (r['startstamp'], ts2sec(r['duration']))
                     for r in playlist_data
                 ],
-                bitrate=bitrate,
+                bitrate=r_t_b.bitrate,
             )
             hdl.finish(playlist)
         elif r_t_b.typ == StreamType.HDS:
-            serve_hds_abst(hdl, lst, False)
+            frg_tbl = [[ts2sec(r['startstamp']), ts2sec(r['duration'])] for r in playlist_data]
+            serve_hds_abst(hdl, 0, frg_tbl, False)
         else:
             assert False
     else:
         raise_error(404)
+
+@gen.engine
+def get_hds_dvr(hdl, asset, startstamp, duration, bitrate, frag_num):
+    frag_num = int(frag_num)
+    if frag_num < 1:
+        raise_error(404)
+    idx = frag_num - 1
+    
+    r_t_b = r_t_b_key(asset, StreamType.HDS, int(bitrate))
+
+    # :TRICKY: заново берем плейлист, потому что нужно отсчитать 
+    # фрагмент с индексом idx; решено, что в "продакшене" хранилка сумеет
+    # поддержать вызов load c offset'ом и сама отдаст по HTTP, т.е. лишней
+    # работы не будет
+    
+    playlist_data = yield gen.Task(load_dvr_pl, r_t_b, startstamp, duration)
+    if idx > len(playlist_data):
+        raise_error(404)
+    
+    startstamp = playlist_data[idx]['startstamp']
+    serve_dvr_chunk(hdl, r_t_b, startstamp)
 
 Fmt2Typ = {
     "m3u8": StreamType.HLS,
@@ -776,7 +815,7 @@ def on_signal(_signum, _ignored_):
     print("Request to stop ...")
     # :TRICKY: вариант с ожиданием завершения оставшихся работ
     # есть на http://tornadogists.org/4643396/ , нам пока не нужен
-    Globals.stop_streaming = True
+    global_variables.stop_streaming = True
     
     stop_lst = []
     for cr in chunk_range_dictionary.values():
@@ -784,7 +823,7 @@ def on_signal(_signum, _ignored_):
             stop_lst.append(cr.r_t_b)
     
     if stop_lst:
-        Globals.stop_lst = set(stop_lst)
+        global_variables.stop_lst = set(stop_lst)
     else:
         IOLoop.stop()
     
@@ -856,9 +895,10 @@ def main():
     handlers = [
         # :TODO: нужна проверка существования канала такая же, что и в get_playlist()
         # :REFACTOR: куча копипасты
-        make_get_handler(r"^/(?P<asset>[-\w]+)/(?:(?P<startstamp>\d+)/(?P<duration>\d+)/)?smil.(?P<extension>m3u8|f4m)", get_playlist_multibitrate),
+        make_get_handler(r"^/(?P<asset>[-\w]+)/(?:(?P<startstamp>\d+)/(?P<duration>\d+)/)?smil.(?P<extension>m3u8|f4m)", get_playlist_multibitrate, name="playlist_multibitrate"),
         make_get_handler(r"^/(?P<asset>[-\w]+)/(?:(?P<startstamp>\d+)/(?P<duration>\d+)/)?(?P<bitrate>\d+)\.(?P<extension>m3u8|abst)", get_playlist_singlebitrate),
         make_get_handler(r"^/(?P<asset>[-\w]+)/(?P<startstamp>\d+)/(?P<duration>\d+)/(?P<bitrate>\d+)\.ts", get_hls_dvr),
+        make_get_handler(r"^/(?P<asset>[-\w]+)/(?P<startstamp>\d+)/(?P<duration>\d+)/(?P<bitrate>\d+)/Seg1-Frag(?P<frag_num>\d+)", get_hds_dvr),
     ]
     def make_static_handler(chunk_dir):
         return r"/%s/(.*)" % chunk_dir, tornado.web.StaticFileHandler, {"path": out_fpath(chunk_dir)}
@@ -875,6 +915,7 @@ def main():
     
     application = tornado.web.Application(handlers)
     application.listen(PORT)
+    global_variables.application = application
 
     IOLoop.start()
 

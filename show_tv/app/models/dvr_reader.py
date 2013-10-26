@@ -89,7 +89,7 @@ class DVRReader(DVRBase):
 
             playlist.append({
                 'startstamp': startstamp,
-                'duration': duration/1000.0,
+                'duration': duration,
                 'metalen': metalen,
                 'metadata': metadata,
             })
