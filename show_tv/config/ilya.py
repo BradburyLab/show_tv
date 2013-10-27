@@ -21,3 +21,6 @@ verbose_tornado = is_test
 dvr_host = "127.0.0.1" # None # 
 # при тестировании: разные файлы для разных битрейтов, а не один
 multibitrate_testing = False
+
+# отладочное логирование
+debug_logging = False

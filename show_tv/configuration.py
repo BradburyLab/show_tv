@@ -56,10 +56,11 @@ def setup_logging():
         setup_file_logger(stream, tornado_lvl, logger)
     # ----- </logging.tornado>
     # <logging.application> -----
-    for logger_name, level in (
-        ('stream', logging.DEBUG),
-        ('DVRReader', logging.DEBUG),
-        ('DVRWriter', logging.DEBUG),
+    level = logging.DEBUG if get_env_value("debug_logging", is_test) else logging.INFO
+    for logger_name in (
+        'stream',
+        'DVRReader',
+        'DVRWriter',
     ):
         logger = logging.getLogger(logger_name)
         logger.setLevel(level)
@@ -81,5 +82,10 @@ environment = parse_args()
 def get_env_value(key, def_value=None):
     return getattr(environment, key, def_value)
 
+cast_one_source = get_env_value("cast_one_source", None)
+is_test = not cast_one_source and environment.is_test
+
 # Устанавливаем логи
 setup_logging()
+
+

@@ -24,10 +24,7 @@ import configuration
 from configuration import make_struct, environment, get_env_value 
 import api
 
-#import getpass
-#is_test = getpass.getuser() in ["muravyev", "ilya", "vany"]
-cast_one_source = get_env_value("cast_one_source", None)
-is_test = not cast_one_source and environment.is_test
+is_test = configuration.is_test
 
 PORT = 8910
 
@@ -341,8 +338,8 @@ def start_ffmpeg_chunking(chunk_range):
         do_stop_chunking(chunk_range)
 
     refname, typ, resolution = chunk_range.r_t_b
-    if cast_one_source:
-        src_media_path = cast_one_source
+    if configuration.cast_one_source:
+        src_media_path = configuration.cast_one_source
     elif is_test:
         src_media_path = test_media_path(resolution)
     else:
@@ -520,13 +517,12 @@ def serve_hds_pl(hdl, chunk_range):
 
     serve_hds_abst(hdl, chunk_range.beg, lst, True)
 
-def get_f4m(hdl, refname):
+def get_f4m(hdl, refname, is_live):
     # согласно FlashMediaManifestFileFormatSpecification.pdf
     hdl.set_header("Content-Type", "application/f4m+xml")
     # :TRICKY: не нужно вроде
     disable_caching(hdl)
     
-    is_live = True
     #s_b = str(720) # брать из streaming_resolutions.keys()
     #url = s_b + "/"
     #f4m = gen_hds.gen_single_bitrate_f4m(refname, s_b + ".abst", is_live, url)
@@ -688,7 +684,7 @@ def get_playlist_multibitrate(hdl, asset, extension, startstamp=None, duration=N
         )
         hdl.write(playlist)
     elif typ == StreamType.HDS:
-        get_f4m(hdl, asset)
+        get_f4m(hdl, asset, startstamp is None)
     else:
         assert False
 
@@ -727,7 +723,8 @@ def get_playlist_dvr(hdl, r_t_b, startstamp, duration):
             )
             hdl.finish(playlist)
         elif r_t_b.typ == StreamType.HDS:
-            frg_tbl = [[ts2sec(r['startstamp']), ts2sec(r['duration'])] for r in playlist_data]
+            first_ts = playlist_data[0]['startstamp']
+            frg_tbl = [[ts2sec(r['startstamp']-first_ts), ts2sec(r['duration'])] for r in playlist_data]
             serve_hds_abst(hdl, 0, frg_tbl, False)
         else:
             assert False
