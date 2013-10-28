@@ -88,4 +88,4 @@ is_test = not cast_one_source and environment.is_test
 # Устанавливаем логи
 setup_logging()
 
-
+use_sendfile = get_env_value("use_sendfile", True)

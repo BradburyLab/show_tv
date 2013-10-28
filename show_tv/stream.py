@@ -897,8 +897,14 @@ def main():
         make_get_handler(r"^/(?P<asset>[-\w]+)/(?P<startstamp>\d+)/(?P<duration>\d+)/(?P<bitrate>\d+)\.ts", get_hls_dvr),
         make_get_handler(r"^/(?P<asset>[-\w]+)/(?P<startstamp>\d+)/(?P<duration>\d+)/(?P<bitrate>\d+)/Seg1-Frag(?P<frag_num>\d+)", get_hds_dvr),
     ]
+    
+    if configuration.use_sendfile:
+        from static_handler import StaticFileHandler
+        static_cls_handler = StaticFileHandler
+    else:
+        static_cls_handler = tornado.web.StaticFileHandler
     def make_static_handler(chunk_dir):
-        return r"/%s/(.*)" % chunk_dir, tornado.web.StaticFileHandler, {"path": out_fpath(chunk_dir)}
+        return r"/%s/(.*)" % chunk_dir, static_cls_handler, {"path": out_fpath(chunk_dir)}
         
     for refname in refname2address_dictionary:
         handlers.append(
