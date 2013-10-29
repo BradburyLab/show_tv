@@ -45,6 +45,7 @@ class DVRBase(object):
         ))
         return loader.load('dvr/playlist.m3u8').generate(
             host=host,
+            port=8910,
             asset=asset,
             targetduration=math.ceil(max([r[1] for r in startstamps_durations])),
             startstamps_durations=startstamps_durations,

@@ -5,7 +5,7 @@
 
 {% for startstamp, duration in startstamps_durations %}
 #EXTINF:{{ duration }},
-http://{{ host }}/{{ asset }}/{{ startstamp }}/{{ int(duration*1000) }}/{{ bitrate }}.ts
+http://{{ host }}:{{ port }}/{{ asset }}/{{ startstamp }}/{{ int(duration*1000) }}/{{ bitrate }}.ts
 {% end %}
 
 #EXT-X-ENDLIST
