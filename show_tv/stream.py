@@ -876,8 +876,13 @@ def main():
     #     logger = logging.getLogger()
     #     logger.setLevel(logging.INFO)
 
-            
-    for refname in stream_always_lst:
+    
+    if stream_always_lst != []:
+        refnames = stream_always_lst
+    else:
+        refnames = refname2address_dictionary.keys()
+
+    for refname in refnames:
         for typ in enum_values(StreamType):
             # :TODO: по умолчанию HDS пока не готово
             use_hds = get_env_value("use_hds", False)
