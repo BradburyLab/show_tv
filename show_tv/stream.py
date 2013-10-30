@@ -896,10 +896,7 @@ def main():
 
     for refname in cfg['live']['stream-always-lst']:
         for typ in enum_values(StreamType):
-            # :TODO: по умолчанию HDS пока не готово
-            # use_hds = get_env_value("use_hds", False)
-            if cfg['live']['use_hds'] or (typ != StreamType.HDS):
-                force_chunking(RTClass(refname, typ))
+            force_chunking(RTClass(refname, typ))
              
     for sig in [signal.SIGTERM, signal.SIGINT]:
         signal.signal(sig, on_signal)
