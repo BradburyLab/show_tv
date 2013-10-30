@@ -402,8 +402,8 @@ def serve_hls_pl(hdl, chunk_range):
 {bitrate}/{name}
 """.format(**locals()))
 
-        # по спеке это должно быть целое число, иначе не работает (IPad)
-        max_dur = int_ceil(max_dur)
+    # по спеке это должно быть целое число, иначе не работает (IPad)
+    max_dur = int_ceil(max_dur)
         
     # EXT-X-MEDIA-SEQUENCE - номер первого сегмента,
     # нужен для указания клиенту на то, что список живой,
