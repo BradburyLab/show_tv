@@ -551,39 +551,71 @@ def get_f4m(hdl, refname, is_live):
 # выдача
 #
 
-def get_channels():
-    """ Прочитать информацию о мультикаст-каналах Bradbury из tv_bl.csv"""
-    # 1 - наилучшее качество, 3 - наихудшее
-    out_indexes = [1, 2, 3]
-    def mc_out(suffix, num):
-        return "mc_%s_out_%s" % (num, suffix)
-    req_clns = ["refname"]
-    for num in out_indexes:
-        req_clns.extend([mc_out(name, num) for name in ["address", "port"]])
+# def get_channels():
+#     """ Прочитать информацию о мультикаст-каналах Bradbury из tv_bl.csv"""
+#     # 1 - наилучшее качество, 3 - наихудшее
+#     out_indexes = [1, 2, 3]
+#     def mc_out(suffix, num):
+#         return "mc_%s_out_%s" % (num, suffix)
+#     req_clns = ["refname"]
+#     for num in out_indexes:
+#         req_clns.extend([mc_out(name, num) for name in ["address", "port"]])
 
-    rn_dct = {}
-    names_dct = {}
+#     rn_dct = {}
+#     names_dct = {}
     
-    # :REFACTOR: all_channels()
-    with list_bl_tv.make_tbl_clns(req_clns) as (tbl, clns):
-        for row in tbl:
-            def get_val(name):
-                return row[clns[name]]
+#     # :REFACTOR: all_channels()
+#     with list_bl_tv.make_tbl_clns(req_clns) as (tbl, clns):
+#         for row in tbl:
+#             def get_val(name):
+#                 return row[clns[name]]
             
-            refname = get_val("refname")
-            if refname and list_bl_tv.is_streaming(row, clns):
-                name = list_bl_tv.channel_name(row, clns)
-                names_dct[name] = refname
+#             refname = get_val("refname")
+#             if refname and list_bl_tv.is_streaming(row, clns):
+#                 name = list_bl_tv.channel_name(row, clns)
+#                 names_dct[name] = refname
                 
-                num2addr = {}
-                for num in out_indexes:
-                    def mc_out_val(name):
-                        return get_val(mc_out(name, num))
+#                 num2addr = {}
+#                 for num in out_indexes:
+#                     def mc_out_val(name):
+#                         return get_val(mc_out(name, num))
                     
-                    num2addr[num] = "udp://%s:%s" % (mc_out_val("address"), mc_out_val("port"))
-                rn_dct[refname] = num2addr
+#                     num2addr[num] = "udp://%s:%s" % (mc_out_val("address"), mc_out_val("port"))
+#                 rn_dct[refname] = num2addr
                 
+#     return rn_dct, names_dct
+
+def get_channels():
+    bitrate_out_number = dict([
+        (
+            data['bitrate'],
+            data['out_number'],
+        )
+        for resolution, data in cfg['live']['definitions'].items()
+    ])
+    names_dct = dict([
+        (
+            data['metadata']['channel_name_ru'],
+            refname,
+        )
+        for refname, data in cfg['udp-source'].items()
+    ])
+    rn_dct = dict([
+        (
+            refname,
+            dict([
+                (
+                    out_number,
+                    data[bitrate],
+                )
+                for (bitrate, out_number)
+                in bitrate_out_number.items()
+            ])
+        )
+        for refname, data in cfg['udp-source'].items()
+    ])
     return rn_dct, names_dct
+    
 
 # словарь "имя канала" => адрес входящий адрес вещания
 refname2address_dictionary = get_channels()[0]
