@@ -21,12 +21,17 @@ import tornado.ioloop
 IOLoop = tornado.ioloop.IOLoop.instance()
 
 import configuration
-from configuration import make_struct, environment, get_env_value 
+from configuration import (
+    make_struct,
+    # environment,
+    # get_env_value,
+    cfg,
+)
 import api
 
-is_test = configuration.is_test
+is_test = cfg['live']['is_test']
 
-PORT = 8910
+# PORT = 8910
 
 def int_ceil(float_):
     """ Округлить float в больщую сторону """
@@ -47,7 +52,7 @@ def r_t_b_key(refname, typ, bitrate):
 
 #ResolutionClass = namedtuple('ResolutionClass', ['bitrate', 'out_number'])
 # out_number - номер в таблице адресов, соответ. качеству канала (1 - наилучший)
-streaming_resolutions = get_env_value("resolutions", dict([
+streaming_resolutions = cfg['live'].get("resolutions", dict([
     (360, {"bitrate": 500000,  "out_number": 3}),
     (576, {"bitrate": 900000,  "out_number": 2}),
     (720, {"bitrate": 1300000, "out_number": 1}),
@@ -60,6 +65,7 @@ def r_t_b_iter(iteratable):
         for typ in enum_values(StreamType):
             for resolution, item in streaming_resolutions.items():
                 yield r_t_b_key(refname, typ, resolution)
+                
 
 # в Bradbury обычно 3 секунду GOP, а фрагмент:
 # - HLS: 6 секунд (раньше было 9)
@@ -72,13 +78,14 @@ def hls_chunk_name(i):
     """ Имя i-го фрагмента/чанка """
     return chunk_tmpl % i
 
-OUT_DIR = environment.out_dir
+# OUT_DIR = environment.out_dir
 
 def out_fpath(chunk_dir, *fname):
     """ Вернуть полный путь до файла в OUT_DIR """
-    return o_p.join(OUT_DIR, chunk_dir, *fname)
+    # return o_p.join(OUT_DIR, chunk_dir, *fname)
+    return o_p.join(cfg['live']['db-path'], chunk_dir, *fname)
 
-real_hds_chunking = get_env_value("real_hds_chunking", True)
+# real_hds_chunking = get_env_value("real_hds_chunking", True)
 
 def get_chunk_fpath(r_t_b, i):
     typ = r_t_b.typ
@@ -106,7 +113,8 @@ def written_chunks(chunk_range):
 
 def is_test_hds(chunk_range):
     # :REFACTOR: chunk_range.r_t_b.typ
-    return not real_hds_chunking and (chunk_range.r_t_b.typ == StreamType.HDS)
+    # return not real_hds_chunking and (chunk_range.r_t_b.typ == StreamType.HDS)
+    return not cfg['live']['real_hds_chunking'] and (chunk_range.r_t_b.typ == StreamType.HDS)
 
 def may_serve_pl(chunk_range):
     """ Можно ли вещать канал = достаточно ли чанков для выдачи в плейлисте """
@@ -121,7 +129,8 @@ def may_serve_pl(chunk_range):
     return ready_chunks(chunk_range) >= min_cnt
 
 def emulate_live():
-    return is_test and get_env_value("emulate_live", True)
+    return cfg['live']['emulate_live']
+    # return is_test and get_env_value("emulate_live", True)
 
 def run_chunker(src_media_path, typ, chunk_dir, on_new_chunk, on_stop_chunking, is_batch=False):
     """ Запустить ffmpeg для фрагментирования файла/исходника src_media_path для
@@ -131,7 +140,8 @@ def run_chunker(src_media_path, typ, chunk_dir, on_new_chunk, on_stop_chunking, 
         - is_batch - не эмулировать вещание, только для VOD-файлов """
     o_p.force_makedirs(out_fpath(chunk_dir))
     
-    ffmpeg_bin = environment.ffmpeg_bin
+    # ffmpeg_bin = environment.ffmpeg_bin
+    ffmpeg_bin = cfg['live']['ffmpeg-bin']
     
     # :TRICKY: так отлавливаем сообщение от segment.c вида "starts with packet stream"
     in_opts = "-i " + src_media_path
@@ -226,7 +236,7 @@ def test_src_fpath(fname):
 def test_media_path(bitrate):
     # return list_bl_tv.make_path("pervyj.ts")+
     # return test_src_fpath("pervyj-720x406.ts")
-    fname = "pervyj-{0}.ts".format(bitrate) if get_env_value("multibitrate_testing", True) else "pervyj-720x406.ts"
+    fname = "pervyj-{0}.ts".format(bitrate) if cfg['live']['multibitrate_testing'] else "pervyj-720x406.ts"
     return test_src_fpath(fname)
 
 global_variables = make_struct(
@@ -272,10 +282,14 @@ def do_stop_chunking(chunk_range):
 from tornado import gen
 from app.models.dvr_writer import DVRWriter
 
-def get_dvr_host():
-    return get_env_value("dvr_host", 'localhost')
+# def get_dvr_host():
+#     return get_env_value("dvr_host", 'localhost')
 
-dvr_writer = DVRWriter(host=get_dvr_host())
+dvr_writer = DVRWriter(
+    host=cfg['live']['dvr-host'],
+    port=cfg['storage']['write-port'],
+    use_sendfile=cfg['live']['use_sendfile'],
+)
 
 def start_ffmpeg_chunking(chunk_range):
     chunk_range.start_times = []
@@ -298,9 +312,10 @@ def start_ffmpeg_chunking(chunk_range):
         diff = ready_chunks(chunk_range) - max_cnt
 
         # <DVR writer> --------------------------------------------------------
-        do_write_dvr = bool(get_dvr_host()) and get_env_value("do_write_dvr", True)
+        # do_write_dvr = bool(get_dvr_host()) and get_env_value("do_write_dvr", True)
         if (
-            do_write_dvr and
+            # do_write_dvr and
+            cfg['live']['do_write_dvr'] and
             chunk_range.end > 1
         ):
             # индекс того чанка, который готов
@@ -338,12 +353,12 @@ def start_ffmpeg_chunking(chunk_range):
         do_stop_chunking(chunk_range)
 
     refname, typ, resolution = chunk_range.r_t_b
-    if configuration.cast_one_source:
-        src_media_path = configuration.cast_one_source
-    elif is_test:
+    # if configuration.cast_one_source:
+    #     src_media_path = configuration.cast_one_source
+    if is_test:
         src_media_path = test_media_path(resolution)
     else:
-        out_number = streaming_resolutions[resolution]["out_number"]
+        out_number = cfg['live']['definitions'][resolution]['out_number']
         src_media_path = refname2address_dictionary[refname][out_number]
 
     chunk_dir = "{0}/{1}".format(refname, resolution)
@@ -581,9 +596,8 @@ def init_crd():
         chunk_range_dictionary[r_t_b] = make_struct(
             is_started = False,
             on_first_chunk_handlers = [],
-            r_t_b = r_t_b,
-            
-            stop_signal = False
+            r_t_b = r_t_b,      
+            stop_signal = False,
         )
 init_crd()
 
@@ -640,7 +654,10 @@ def force_chunking(r_t):
     return res
 
 from app.models.dvr_reader import DVRReader
-dvr_reader = DVRReader(host=get_dvr_host())
+dvr_reader = DVRReader(
+    host=cfg['live']['dvr-host'],
+    port=cfg['storage']['read-port'],
+)
 
 @gen.engine
 def serve_dvr_chunk(hdl, r_t_b, startstamp, callback=None):
@@ -828,11 +845,12 @@ def on_signal(_signum, _ignored_):
 # вещание по запросу
 #
 
-if is_test:
-    stream_always_lst = ['pervyj']
-else:
-    #stream_always_lst = ['pervyj', 'rossia1', 'ntv', 'rossia24', 'peterburg5', 'rbktv']
-    stream_always_lst = get_env_value("stream_always_lst", ['pervyj'])
+# if is_test:
+#     stream_always_lst = ['pervyj']
+# else:
+#     #stream_always_lst = ['pervyj', 'rossia1', 'ntv', 'rossia24', 'peterburg5', 'rbktv']
+#     stream_always_lst = get_env_value("stream_always_lst", ['pervyj'])
+stream_always_lst = cfg['live']['stream-always-lst']
 
 def stop_inactives():
     """ Прекратить вещание каналов, которые никто не смотрит в течении STOP_PERIOD=10 минут """
@@ -868,7 +886,7 @@ def main():
         'Fahrenheit 451 mediaserver. Frontend OTT server.\n'
         'Copyright Bradbury Lab, 2013\n'
         'Listens at 0.0.0.0:{0}\n'
-        .format(PORT)
+        .format(cfg['live']['port'])
     )
     
     # if is_test:
@@ -876,17 +894,11 @@ def main():
     #     logger = logging.getLogger()
     #     logger.setLevel(logging.INFO)
 
-    
-    if stream_always_lst != []:
-        refnames = stream_always_lst
-    else:
-        refnames = refname2address_dictionary.keys()
-
-    for refname in refnames:
+    for refname in cfg['live']['stream-always-lst']:
         for typ in enum_values(StreamType):
             # :TODO: по умолчанию HDS пока не готово
-            use_hds = get_env_value("use_hds", False)
-            if use_hds or (typ != StreamType.HDS):
+            # use_hds = get_env_value("use_hds", False)
+            if cfg['live']['use_hds'] or (typ != StreamType.HDS):
                 force_chunking(RTClass(refname, typ))
              
     for sig in [signal.SIGTERM, signal.SIGINT]:
@@ -903,7 +915,8 @@ def main():
         make_get_handler(r"^/(?P<asset>[-\w]+)/(?P<startstamp>\d+)/(?P<duration>\d+)/(?P<bitrate>\d+)/Seg1-Frag(?P<frag_num>\d+)", get_hds_dvr),
     ]
     
-    if configuration.use_sendfile:
+    # if configuration.use_sendfile:
+    if cfg['live']['use_sendfile']:
         from static_handler import StaticFileHandler
         static_cls_handler = StaticFileHandler
     else:
@@ -922,7 +935,7 @@ def main():
     handlers.append(make_get_handler(r"/crossdomain.xml", get_cd_xml, False))
     
     application = tornado.web.Application(handlers)
-    application.listen(PORT)
+    application.listen(cfg['live']['port'])
     global_variables.application = application
 
     IOLoop.start()

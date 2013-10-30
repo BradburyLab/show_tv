@@ -10,9 +10,10 @@ from tornado import template
 
 
 class DVRBase(object):
-    def __init__(self, host='127.0.0.1', port=6451):
+    def __init__(self, host='127.0.0.1', port=6451, use_sendfile=False):
         self.host = host
         self.port = port
+        self.use_sendfile = use_sendfile
         self.n = self.__class__.__name__
         self.l = logging.getLogger(self.n)
         self.l.info('[{n}] initialized on {host}:{port}'.format(**self.__dict__))

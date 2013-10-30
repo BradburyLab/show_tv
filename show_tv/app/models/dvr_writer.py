@@ -9,14 +9,15 @@ from .dvr_base import DVRBase
 
 import configuration
 import api
+from sendfile import sendfile
 
-use_sendfile = configuration.use_sendfile
-if use_sendfile:
-    from sendfile import sendfile
+# use_sendfile = configuration.use_sendfile
+# if use_sendfile:
+#     from sendfile import sendfile
 
 class DVRWriter(DVRBase):
-    def __init__(self, host='127.0.0.1', port=6451):
-        super().__init__(host, port)
+    def __init__(self, host='127.0.0.1', port=6451, use_sendfile=False):
+        super().__init__(host, port, use_sendfile)
 
     @gen.engine
     def write(
@@ -86,7 +87,7 @@ class DVRWriter(DVRBase):
         self.c.write(pack)
         self.c.write(metadata)
         
-        if use_sendfile:
+        if self.use_sendfile:
             sendfile(self.c, path_payload, payloadlen)
         else:
             with open(path_payload, 'rb') as f:
