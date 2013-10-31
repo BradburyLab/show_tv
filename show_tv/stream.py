@@ -52,7 +52,7 @@ def r_t_b_key(refname, typ, bitrate):
 
 #ResolutionClass = namedtuple('ResolutionClass', ['bitrate', 'out_number'])
 # out_number - номер в таблице адресов, соответ. качеству канала (1 - наилучший)
-streaming_resolutions = cfg['live'].get("resolutions", dict([
+streaming_resolutions = cfg['live'].get("definitions", dict([
     (360, {"bitrate": 500000,  "out_number": 3}),
     (576, {"bitrate": 900000,  "out_number": 2}),
     (720, {"bitrate": 1300000, "out_number": 1}),
@@ -307,7 +307,7 @@ def start_ffmpeg_chunking(chunk_range):
             for hdl in hdls:
                 hdl()
 
-        max_total = 72 # максимум столько секунд храним
+        max_total = cfg['live']['max_total'] # максимум столько секунд храним
         max_cnt = int_ceil(float(max_total) / std_chunk_dur)
         diff = ready_chunks(chunk_range) - max_cnt
 
@@ -476,7 +476,7 @@ def start_test_hds_chunking(chunk_range):
             for hdl in hdls:
                 hdl()
 
-        max_total = 72 # максимум столько секунд храним
+        max_total = cfg['live']['max_total'] # максимум столько секунд храним
         #max_cnt = int_ceil(float(max_total) / std_chunk_dur)
         max_cnt = int_ceil(float(max_total) / 3)
         diff = ready_chunks(chunk_range) - max_cnt
