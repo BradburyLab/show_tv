@@ -16,8 +16,8 @@ from sendfile import sendfile
 #     from sendfile import sendfile
 
 class DVRWriter(DVRBase):
-    def __init__(self, host='127.0.0.1', port=6451, use_sendfile=False):
-        super().__init__(host, port, use_sendfile)
+    def __init__(self, cfg, host='127.0.0.1', port=6451, use_sendfile=False):
+        super().__init__(cfg, host, port, use_sendfile)
 
     @gen.engine
     def write(

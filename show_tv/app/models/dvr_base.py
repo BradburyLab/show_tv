@@ -10,7 +10,8 @@ from tornado import template
 
 
 class DVRBase(object):
-    def __init__(self, host='127.0.0.1', port=6451, use_sendfile=False):
+    def __init__(self, cfg, host='127.0.0.1', port=6451, use_sendfile=False):
+        self.cfg = cfg
         self.host = host
         self.port = port
         self.use_sendfile = use_sendfile
@@ -46,7 +47,7 @@ class DVRBase(object):
         ))
         return loader.load('dvr/playlist.m3u8').generate(
             host=host,
-            port=8910,
+            port=self.cfg['live']['port'],
             asset=asset,
             targetduration=math.ceil(max([r[1] for r in startstamps_durations])),
             startstamps_durations=startstamps_durations,

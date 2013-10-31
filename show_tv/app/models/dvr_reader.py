@@ -14,8 +14,8 @@ class DVRReader(DVRBase):
         'range': 0x04,
     }
 
-    def __init__(self, host='127.0.0.1', port=7451):
-        super().__init__(host, port)
+    def __init__(self, cfg, host='127.0.0.1', port=7451):
+        super().__init__(cfg, host, port)
 
     @gen.engine
     def range(self, asset, bitrate, startstamp, duration, callback):

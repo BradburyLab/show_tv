@@ -286,6 +286,7 @@ from app.models.dvr_writer import DVRWriter
 #     return get_env_value("dvr_host", 'localhost')
 
 dvr_writer = DVRWriter(
+    cfg=cfg,
     host=cfg['live']['dvr-host'],
     port=cfg['storage']['write-port'],
     use_sendfile=cfg['live']['use_sendfile'],
@@ -687,6 +688,7 @@ def force_chunking(r_t):
 
 from app.models.dvr_reader import DVRReader
 dvr_reader = DVRReader(
+    cfg=cfg,
     host=cfg['live']['dvr-host'],
     port=cfg['storage']['read-port'],
 )
