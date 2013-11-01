@@ -9,7 +9,7 @@ import logging
 import yaml
 
 # Import f451 libs
-import o_p
+# import o_p
 import api
 
 
@@ -41,7 +41,7 @@ def parse_args():
         dest='version', type=bool, default=False,
         help='show verion number',
     )
-    
+
     # env_name = parser.parse_args().environment
     # print(env_name)
     # fpath = o_p.join(cur_directory, "config", env_name + ".py")

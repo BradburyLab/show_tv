@@ -7,13 +7,14 @@ from tornado import gen
 
 from .dvr_base import DVRBase
 
-import configuration
+# import configuration
 import api
 from sendfile import sendfile
 
 # use_sendfile = configuration.use_sendfile
 # if use_sendfile:
 #     from sendfile import sendfile
+
 
 class DVRWriter(DVRBase):
     def __init__(self, cfg, host='127.0.0.1', port=6451, use_sendfile=False):
@@ -29,9 +30,9 @@ class DVRWriter(DVRBase):
     ):
         '''
         '''
-        name    = api.asset_name(r_t_b)
+        name = api.asset_name(r_t_b)
         bitrate = r_t_b.bitrate
-        
+
         if not hasattr(self, 'c'):
             yield gen.Task(self.reconnect)
 
@@ -80,7 +81,7 @@ class DVRWriter(DVRBase):
             #gen.Task(self.c.write, metadata),
         #]
         self.c.write(pack)
-        
+
         if self.use_sendfile:
             sendfile(self.c, path_payload, payloadlen)
         else:
@@ -101,7 +102,7 @@ class DVRWriter(DVRBase):
         #                 metadata,
         #                 buf,
         #             ])
-        #         ) 
+        #         )
         #     elif rcode == 0:
         #         print("EOF")
         #     else:

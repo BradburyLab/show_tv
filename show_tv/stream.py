@@ -2,18 +2,20 @@
 # coding: utf-8
 #
 # Copyright Bradbury Lab, 2013
-# Авторы: 
+# Авторы:
 #  Илья Муравьев
 #
 
 import os
-import o_p, s_
+import o_p
+import s_
 import math
-import list_bl_tv
+# import list_bl_tv
 import logging
 import re
 import datetime
-import functools # functools.partial
+# functools.partial
+import functools
 
 import tornado.process
 import tornado.web
@@ -43,8 +45,8 @@ def enum_values(enum):
     return tuple(v for k, v in vars(enum).items() if k.upper() == k)
 
 from collections import namedtuple
-    
-# используем namedtuple в качестве ключей, так как 
+
+# используем namedtuple в качестве ключей, так как
 # они порождены от tuple => имеют адекватное упорядочивание
 RTRClass = namedtuple('RTRClass', ['refname', 'typ', 'bitrate'])
 def r_t_b_key(refname, typ, bitrate):
@@ -65,7 +67,6 @@ def r_t_b_iter(iteratable):
         for typ in enum_values(StreamType):
             for resolution, item in streaming_resolutions.items():
                 yield r_t_b_key(refname, typ, resolution)
-                
 
 # в Bradbury обычно 3 секунду GOP, а фрагмент:
 # - HLS: 6 секунд (раньше было 9)
@@ -97,7 +98,6 @@ def get_chunk_fpath(r_t_b, i):
 
 def remove_chunks(rng, cr):
     r_t_b = cr.r_t_b
-    typ = r_t_b.typ
     for i in rng:
         os.unlink(get_chunk_fpath(r_t_b, i))
 
@@ -122,10 +122,12 @@ def may_serve_pl(chunk_range):
         this_chunk_dur = 3
     else:
         this_chunk_dur = std_chunk_dur
-    
-    min_total = 12 # максимум столько секунд храним
-    min_cnt = int_ceil(float(min_total) / this_chunk_dur) # :REFACTOR:
-    
+
+    # максимум столько секунд храним
+    min_total = 12
+    # :REFACTOR:
+    min_cnt = int_ceil(float(min_total) / this_chunk_dur)
+
     return ready_chunks(chunk_range) >= min_cnt
 
 def emulate_live():
@@ -134,28 +136,28 @@ def emulate_live():
 
 def run_chunker(src_media_path, typ, chunk_dir, on_new_chunk, on_stop_chunking, is_batch=False):
     """ Запустить ffmpeg для фрагментирования файла/исходника src_media_path для
-        вещания канала chunk_dir; 
+        вещания канала chunk_dir;
         - on_new_chunk - что делать в момент начала создания нового фрагмента
         - on_stop_chunking - что делать, если ffmpeg закончил работу
         - is_batch - не эмулировать вещание, только для VOD-файлов """
     o_p.force_makedirs(out_fpath(chunk_dir))
-    
+
     # ffmpeg_bin = environment.ffmpeg_bin
     ffmpeg_bin = cfg['live']['ffmpeg-bin']
-    
+
     # :TRICKY: так отлавливаем сообщение от segment.c вида "starts with packet stream"
     in_opts = "-i " + src_media_path
     if emulate_live() and not is_batch:
         # эмулируем выдачу видео в реальном времени
         in_opts = "-re " + in_opts
-    
+
     is_hls = typ == StreamType.HLS
     if is_hls:
         ffmpeg_bin += " -v debug"
-        chunk_options = "-codec copy -map 0 -f ssegment -segment_time %s" % std_chunk_dur 
+        chunk_options = "-codec copy -map 0 -f ssegment -segment_time %s" % std_chunk_dur
     else:
-        #chunk_options = "-codec copy -bsf:a aac_adtstoasc" 
-        chunk_options = "-vcodec copy -strict experimental -c:a aac -ac 2 -ar 44100" 
+        #chunk_options = "-codec copy -bsf:a aac_adtstoasc"
+        chunk_options = "-vcodec copy -strict experimental -c:a aac -ac 2 -ar 44100"
         chunk_options += " -f hds -hds_time %s" % std_chunk_dur
     cmd = "%(ffmpeg_bin)s %(in_opts)s %(chunk_options)s" % locals()
     if is_test:
@@ -165,13 +167,13 @@ def run_chunker(src_media_path, typ, chunk_dir, on_new_chunk, on_stop_chunking, 
     o_fpath = out_fpath(chunk_dir, chunk_tmpl if is_hls else "manifest.f4m")
     cmd += " %s" % o_fpath
     #print(cmd)
-    
+
     Subprocess = tornado.process.Subprocess
 
     STREAM = Subprocess.STREAM
     ffmpeg_proc = Subprocess(cmd, stdout=STREAM, stderr=STREAM, shell=True)
- 
     segment_sign = api.segment_sign
+
     def on_line(line):
         m = segment_sign.search(line)
         if m:
@@ -180,10 +182,11 @@ def run_chunker(src_media_path, typ, chunk_dir, on_new_chunk, on_stop_chunking, 
             on_new_chunk(chunk_ts)
 
     line_sep = re.compile(br"(\n|\r\n?).", re.M)
-    errdat = make_struct(txt = b'')
+    errdat = make_struct(txt=b'')
+
     def process_lines(dat):
         errdat.txt += dat
-        
+
         line_end = 0
         while True:
             m = line_sep.search(errdat.txt, line_end)
@@ -193,23 +196,24 @@ def run_chunker(src_media_path, typ, chunk_dir, on_new_chunk, on_stop_chunking, 
                 on_line(errdat.txt[line_beg:line_end])
             else:
                 break
-            
+
         if line_end:
             errdat.txt = errdat.txt[line_end:]
-    
+
     def on_stderr(dat):
         #print("data:", dat)
         process_lines(dat)
-            
+
     # фиксируем прекращение активности транскодера после
     # двух событий
     end_set = set([True, False])
+
     def set_stop(is_stderr):
         end_set.discard(is_stderr)
         # оба события прошли
         if not end_set:
             on_stop_chunking()
-    
+
     # все придет в on_stderr, сюда только - факт того, что файл
     # закрыли с той стороны (+ пустая строка)
     def on_stderr_end(dat):
@@ -227,7 +231,7 @@ def run_chunker(src_media_path, typ, chunk_dir, on_new_chunk, on_stop_chunking, 
         #print("exit_code:", _exit_code)
         set_stop(False)
     ffmpeg_proc.set_exit_callback(on_proc_exit)
-    
+
     return ffmpeg_proc.pid
 
 def test_src_fpath(fname):
@@ -240,7 +244,7 @@ def test_media_path(bitrate):
     return test_src_fpath(fname)
 
 global_variables = make_struct(
-    stop_streaming = False
+    stop_streaming=False
 )
 
 def start_chunking(chunk_range):
@@ -248,18 +252,18 @@ def start_chunking(chunk_range):
         вещания chunk_range.r_t_b.typ (HLS или HDS) """
     if global_variables.stop_streaming:
         return
-    
+
     # инициализация
     chunk_range.is_started = True
     chunk_range.beg = 0
     # номер следующего за пишущимся чанком
     chunk_range.end = 0
-    
+
     if is_test_hds(chunk_range):
         start_test_hds_chunking(chunk_range)
     else:
         start_ffmpeg_chunking(chunk_range)
-        
+
 def do_stop_chunking(chunk_range):
     """ Функция, которую нужно выполнить по окончанию вещания (когда закончил
         работу chunker=ffmpeg """
@@ -308,7 +312,8 @@ def start_ffmpeg_chunking(chunk_range):
             for hdl in hdls:
                 hdl()
 
-        max_total = cfg['live']['max_total'] # максимум столько секунд храним
+        # максимум столько секунд храним
+        max_total = cfg['live']['max_total']
         max_cnt = int_ceil(float(max_total) / std_chunk_dur)
         diff = ready_chunks(chunk_range) - max_cnt
 
@@ -325,7 +330,7 @@ def start_ffmpeg_chunking(chunk_range):
             start_seconds = chunk_range.start_times[i-chunk_range.beg]
             # путь до файла с готовым чанком
             path_payload = get_chunk_fpath(
-                chunk_range.r_t_b, 
+                chunk_range.r_t_b,
                 i
             )
             # длина чанка
@@ -338,7 +343,7 @@ def start_ffmpeg_chunking(chunk_range):
                 is_pvr=True,
                 path_payload=path_payload,
             )
-            
+
             # :TRICKY: tornado умеет генерить ссылки только для простых случаев
             #print(global_variables.application.reverse_url("playlist_multibitrate", chunk_range.r_t_b.refname, 1, 1, "f4m"))
         # ------------------------------------------------------- </DVR writer>
@@ -375,11 +380,11 @@ def chunk_duration(i, chunk_range):
 #
 
 def serve_hls_pl(hdl, chunk_range):
-    """ Выдача плейлиста HLS, .m3u8; 
+    """ Выдача плейлиста HLS, .m3u8;
         type(hdl) == tornado.web.RequestHandler """
     # :TRICKY: по умолчанию tornado выставляет
-    # "text/html; charset=UTF-8", и вроде как по 
-    # документации HLS, http://tools.ietf.org/html/draft-pantos-http-live-streaming-08 ,
+    # "text/html; charset=UTF-8", и вроде как по
+    # документации HLS, http://tools.ietf.org/html/draft-pantos-http-live-streaming-08,
     # такое возможно, если путь оканчивается на .m3u8 , но в реальности
     # Safari/IPad такое не принимает (да и Firefox/Linux тоже)
     hdl.set_header("Content-Type", "application/vnd.apple.mpegurl")
@@ -396,7 +401,7 @@ def serve_hls_pl(hdl, chunk_range):
 
         max_dur = max(dur, max_dur)
 
-        # используем %f (6 знаков по умолчанию) вместо %s, чтобы на 
+        # используем %f (6 знаков по умолчанию) вместо %s, чтобы на
         # '%s' % 0.0000001 не получать '1e-07'
         chunk_lst.append("""#EXTINF:{dur:f},
 {bitrate}/{name}
@@ -404,7 +409,7 @@ def serve_hls_pl(hdl, chunk_range):
 
     # по спеке это должно быть целое число, иначе не работает (IPad)
     max_dur = int_ceil(max_dur)
-        
+
     # EXT-X-MEDIA-SEQUENCE - номер первого сегмента,
     # нужен для указания клиенту на то, что список живой,
     # т.е. его элементы будут добавляться/исчезать по FIFO
@@ -414,13 +419,13 @@ def serve_hls_pl(hdl, chunk_range):
 #EXT-X-TARGETDURATION:%(max_dur)s
 #EXT-X-MEDIA-SEQUENCE:%(chunk_range.beg)s
 """ % s_.EvalFormat())
-                
+
     for s in chunk_lst:
         write(s)
-        
+
     # а вот это для live не надо
     #write("#EXT-X-ENDLIST")
-    
+
     hdl.finish()
 
 #
@@ -442,7 +447,7 @@ def ensure_directory(path):
 # :REFACTOR: куча всего одинакового с start_ffmpeg_chunking(),
 # однако этот код все равно тестовый
 def start_test_hds_chunking(chunk_range):
-    import abst
+    # import abst
     import test_hds
     frg_base, frg_tbl = test_hds.get_frg_tbl()
     assert frg_base == 1
@@ -468,7 +473,7 @@ def start_test_hds_chunking(chunk_range):
         import shutil
         ensure_directory(dst_fname)
         shutil.copyfile(src_fname, dst_fname)
-            
+
         # :REFACTOR: on_first_chunk_handlers + удаление старых
         if may_serve_pl(chunk_range):
             hdls = chunk_range.on_first_chunk_handlers
@@ -476,7 +481,8 @@ def start_test_hds_chunking(chunk_range):
             for hdl in hdls:
                 hdl()
 
-        max_total = cfg['live']['max_total'] # максимум столько секунд храним
+        # максимум столько секунд храним
+        max_total = cfg['live']['max_total']
         #max_cnt = int_ceil(float(max_total) / std_chunk_dur)
         max_cnt = int_ceil(float(max_total) / 3)
         diff = ready_chunks(chunk_range) - max_cnt
@@ -510,22 +516,22 @@ def disable_caching(hdl):
     ]
     for header in no_cache:
         hdl.set_header(*header)
-        
+
     # :TRICKY: 1tv ставит еще Expires, Last-Modified, Vary, Accept-Ranges,
     # Age, но полагаю, что это к делу не относится (OSMFу все равно)
 
 def serve_hds_abst(hdl, start_idx, frg_tbl, is_live):
     hdl.set_header("Content-Type", "binary/octet")
     disable_caching(hdl)
-    
+
     frg_base = gen_hds.make_frg_base(start_idx)
     abst = gen_hds.gen_abst(frg_base, frg_tbl, is_live)
-    
+
     hdl.write(abst)
     hdl.finish()
-    
+
 def serve_hds_pl(hdl, chunk_range):
-    if real_hds_chunking:
+    if cfg['live'].get('real_hds_chunking', True):
         lst = gen_hds.make_frg_tbl(chunk_range.start_times)
     else:
         lst = chunk_range.frg_tbl[chunk_range.beg:ready_chk_end(chunk_range)]
@@ -537,7 +543,7 @@ def get_f4m(hdl, refname, is_live):
     hdl.set_header("Content-Type", "application/f4m+xml")
     # :TRICKY: не нужно вроде
     disable_caching(hdl)
-    
+
     #s_b = str(720) # брать из streaming_resolutions.keys()
     #url = s_b + "/"
     #f4m = gen_hds.gen_single_bitrate_f4m(refname, s_b + ".abst", is_live, url)
@@ -546,44 +552,6 @@ def get_f4m(hdl, refname, is_live):
         medias.append(gen_hds.gen_f4m_media(refname, "%s.abst" % rsl, item["bitrate"], "%s/" % rsl))
     f4m = gen_hds.gen_f4m(refname, is_live, "\n".join(medias))
     hdl.write(f4m)
-    
-#
-# выдача
-#
-
-# def get_channels():
-#     """ Прочитать информацию о мультикаст-каналах Bradbury из tv_bl.csv"""
-#     # 1 - наилучшее качество, 3 - наихудшее
-#     out_indexes = [1, 2, 3]
-#     def mc_out(suffix, num):
-#         return "mc_%s_out_%s" % (num, suffix)
-#     req_clns = ["refname"]
-#     for num in out_indexes:
-#         req_clns.extend([mc_out(name, num) for name in ["address", "port"]])
-
-#     rn_dct = {}
-#     names_dct = {}
-    
-#     # :REFACTOR: all_channels()
-#     with list_bl_tv.make_tbl_clns(req_clns) as (tbl, clns):
-#         for row in tbl:
-#             def get_val(name):
-#                 return row[clns[name]]
-            
-#             refname = get_val("refname")
-#             if refname and list_bl_tv.is_streaming(row, clns):
-#                 name = list_bl_tv.channel_name(row, clns)
-#                 names_dct[name] = refname
-                
-#                 num2addr = {}
-#                 for num in out_indexes:
-#                     def mc_out_val(name):
-#                         return get_val(mc_out(name, num))
-                    
-#                     num2addr[num] = "udp://%s:%s" % (mc_out_val("address"), mc_out_val("port"))
-#                 rn_dct[refname] = num2addr
-                
-#     return rn_dct, names_dct
 
 def get_channels():
     bitrate_out_number = dict([
@@ -615,7 +583,7 @@ def get_channels():
         for refname, data in cfg['udp-source'].items()
     ])
     return rn_dct, names_dct
-    
+
 
 # словарь "имя канала" => адрес входящий адрес вещания
 refname2address_dictionary = get_channels()[0]
@@ -626,10 +594,10 @@ def init_crd():
     # :TODO: создавать по требованию (ленивая инициализация)
     for r_t_b in r_t_b_iter(refname2address_dictionary):
         chunk_range_dictionary[r_t_b] = make_struct(
-            is_started = False,
-            on_first_chunk_handlers = [],
-            r_t_b = r_t_b,      
-            stop_signal = False,
+            is_started=False,
+            on_first_chunk_handlers=[],
+            r_t_b=r_t_b,
+            stop_signal=False,
         )
 init_crd()
 
@@ -642,7 +610,7 @@ def r_t_iter(iteratable):
         for typ in enum_values(StreamType):
             yield RTClass(refname, typ)
 
-# список вещаемых каналов типа RTClass = (refname, typ) прямо сейчас 
+# список вещаемых каналов типа RTClass = (refname, typ) прямо сейчас
 activity_set = set()
 
 def raise_error(status):
@@ -651,11 +619,11 @@ def raise_error(status):
 def make_get_handler(match_pattern, get_handler, is_async=True, name=None):
     """ Альтернатива созданию торнадовского обработчика: get_handler - обработка
         GET-запроса
-        По умолчанию создается асинхронный обработчик, т.е. дополнительный 
-        декоратор @tornado.web.asynchronous не нужен """
+        По умолчанию создается асинхронный обработчик, т.е. дополнительный
+        декоратор @tornado.web.asynchronous не нужен"""
     class Handler(tornado.web.RequestHandler):
         pass
-    
+
     Handler.get = tornado.web.asynchronous(get_handler) if is_async else get_handler
     return tornado.web.url(match_pattern, Handler, name=name)
 
@@ -682,7 +650,7 @@ def force_chunking(r_t):
         if not c_r.is_started:
             res = False
             break
-        
+
     return res
 
 from app.models.dvr_reader import DVRReader
@@ -701,7 +669,7 @@ def serve_dvr_chunk(hdl, r_t_b, startstamp, callback=None):
         startstamp=startstamp,
     )
     hdl.finish(payload)
-    
+
     if callback:
         callback(None)
 
@@ -722,7 +690,7 @@ def get_playlist_multibitrate(hdl, asset, extension, startstamp=None, duration=N
     typ = Fmt2Typ[extension]
     if typ == StreamType.HLS:
         hdl.set_header("Content-Type", "application/vnd.apple.mpegurl")
-    
+
         loader = template.Loader(os.path.join(
             configuration.cur_directory,
             'app',
@@ -758,7 +726,7 @@ def load_dvr_pl(r_t_b, startstamp, duration, callback):
 @gen.engine
 def get_playlist_dvr(hdl, r_t_b, startstamp, duration):
     playlist_data = yield gen.Task(load_dvr_pl, r_t_b, startstamp, duration)
-        
+
     if playlist_data:
         if r_t_b.typ == StreamType.HLS:
             hdl.set_header('Content-Type', 'application/vnd.apple.mpegurl')
@@ -787,18 +755,18 @@ def get_hds_dvr(hdl, asset, startstamp, duration, bitrate, frag_num):
     if frag_num < 1:
         raise_error(404)
     idx = frag_num - 1
-    
+
     r_t_b = r_t_b_key(asset, StreamType.HDS, int(bitrate))
 
-    # :TRICKY: заново берем плейлист, потому что нужно отсчитать 
+    # :TRICKY: заново берем плейлист, потому что нужно отсчитать
     # фрагмент с индексом idx; решено, что в "продакшене" хранилка сумеет
     # поддержать вызов load c offset'ом и сама отдаст по HTTP, т.е. лишней
     # работы не будет
-    
+
     playlist_data = yield gen.Task(load_dvr_pl, r_t_b, startstamp, duration)
     if idx > len(playlist_data):
         raise_error(404)
-    
+
     startstamp = playlist_data[idx]['startstamp']
     serve_dvr_chunk(hdl, r_t_b, startstamp)
 
@@ -836,7 +804,7 @@ def get_playlist_singlebitrate(hdl, asset, bitrate, extension, startstamp=None, 
         serve_pl(hdl, chunk_range)
     else:
         chunk_range.on_first_chunk_handlers.append(functools.partial(serve_pl, hdl, chunk_range))
-        
+
     activity_set.add(r_t)
 
 #
@@ -847,7 +815,7 @@ import signal
 def kill_cr(cr):
     """ Послать сигнал chunker'у (ffmpeg) прекратить работу """
     cr.stop_signal = True
-    
+
     if not is_test_hds(cr):
         os.kill(cr.pid, signal.SIGTERM)
 
@@ -863,17 +831,17 @@ def on_signal(_signum, _ignored_):
     # :TRICKY: вариант с ожиданием завершения оставшихся работ
     # есть на http://tornadogists.org/4643396/ , нам пока не нужен
     global_variables.stop_streaming = True
-    
+
     stop_lst = []
     for cr in chunk_range_dictionary.values():
         if try_kill_cr(cr):
             stop_lst.append(cr.r_t_b)
-    
+
     if stop_lst:
         global_variables.stop_lst = set(stop_lst)
     else:
         IOLoop.stop()
-    
+
 #
 # вещание по запросу
 #
@@ -887,7 +855,7 @@ stream_always_lst = cfg['live']['stream-always-lst']
 
 def stop_inactives():
     """ Прекратить вещание каналов, которые никто не смотрит в течении STOP_PERIOD=10 минут """
-    
+
     #for r_t_b, cr in chunk_range_dictionary.items():
         #if cr.is_started and r_t_b not in activity_set and r_t_b.refname not in stream_always_lst:
             #print("Stopping inactive:", r_t_b)
@@ -898,16 +866,17 @@ def stop_inactives():
             if c_r.is_started:
                 is_started = True
                 break
-        
+
         if is_started and r_t not in activity_set and r_t.refname not in stream_always_lst:
             print("Stopping inactive:", r_t)
             for c_r in for_all_resolutions(r_t):
                 try_kill_cr(c_r)
-            
+
     activity_set.clear()
     set_stop_timer()
 
-STOP_PERIOD = 600 # 10 минут
+# 10 минут
+STOP_PERIOD = 600
 def set_stop_timer():
     period = datetime.timedelta(seconds=STOP_PERIOD)
     IOLoop.add_timeout(period, stop_inactives)
@@ -921,7 +890,7 @@ def main():
         'Listens at 0.0.0.0:{0}\n'
         .format(cfg['live']['port'])
     )
-    
+
     # if is_test:
     #     # для Tornado, чтоб на каждый запрос отчитывался
     #     logger = logging.getLogger()
@@ -934,7 +903,7 @@ def main():
     for sig in [signal.SIGTERM, signal.SIGINT]:
         signal.signal(sig, on_signal)
     set_stop_timer()
-    
+
     # обработчики
     handlers = [
         # :TODO: нужна проверка существования канала такая же, что и в get_playlist()
@@ -944,26 +913,27 @@ def main():
         make_get_handler(r"^/(?P<asset>[-\w]+)/(?P<startstamp>\d+)/(?P<duration>\d+)/(?P<bitrate>\d+)\.ts", get_hls_dvr),
         make_get_handler(r"^/(?P<asset>[-\w]+)/(?P<startstamp>\d+)/(?P<duration>\d+)/(?P<bitrate>\d+)/Seg1-Frag(?P<frag_num>\d+)", get_hds_dvr),
     ]
-    
+
     # if configuration.use_sendfile:
     if cfg['live']['use_sendfile']:
         from static_handler import StaticFileHandler
         static_cls_handler = StaticFileHandler
     else:
         static_cls_handler = tornado.web.StaticFileHandler
+
     def make_static_handler(chunk_dir):
         return r"/%s/(.*)" % chunk_dir, static_cls_handler, {"path": out_fpath(chunk_dir)}
-        
+
     for refname in refname2address_dictionary:
         handlers.append(
             make_static_handler(refname),
         )
-    
+
     # всеразрешающий crossdomain.xml для HDS
     def get_cd_xml(hdl):
         hdl.write(gen_hds.least_restrictive_cd_xml())
     handlers.append(make_get_handler(r"/crossdomain.xml", get_cd_xml, False))
-    
+
     application = tornado.web.Application(handlers)
     application.listen(cfg['live']['port'])
     global_variables.application = application
@@ -972,15 +942,15 @@ def main():
 
 def get_channel_addr(req_channel):
     rn_dct, names_dct = get_channels()
-    
+
     res = names_dct.get(req_channel)
     if res:
         res = rn_dct[res]
     return res
-    
+
 if __name__ == "__main__":
     if True:
         main()
-        
+
     if False:
         print(get_channel_addr("Первый канал"))
