@@ -73,8 +73,8 @@ class DVRReader(DVRBase):
         io = BytesIO(chunks_data)
         playlist = []
         while True:
-            chunk_data = io.read(24)
-            if len(chunk_data) != 24:
+            chunk_data = io.read(16)
+            if len(chunk_data) != 16:
                 break
 
             self.l.debug('[DVRReader]')
@@ -82,20 +82,13 @@ class DVRReader(DVRBase):
             (
                 startstamp,
                 duration,
-                # metalen,
             ) = struct.unpack('=QQ', chunk_data)
             self.l.debug('[DVRReader] <= startstamp = {0}'.format(startstamp))
             self.l.debug('[DVRReader] <= duration = {0}'.format(duration))
-            # self.l.debug('[DVRReader] <= metalen = {0}'.format(metalen))
-
-            # metadata = io.read(metalen)
-            # self.l.debug('[DVRReader] <= metadata = {0}'.format(metadata))
 
             playlist.append({
                 'startstamp': startstamp,
                 'duration': duration,
-                # 'metalen': metalen,
-                # 'metadata': metadata,
             })
 
         self.l.debug('[DVRReader] range finish <<<<<<<<<<<<<<<\n')

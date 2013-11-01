@@ -22,8 +22,6 @@ class DVRBase(object):
     @gen.engine
     def reconnect(self, callback):
         self.l.debug('[{n}] reconnect start'.format(**self.__dict__))
-        self.l.debug(self.host)
-        self.l.debug(self.port)
         self.c = tornado.iostream.IOStream(
             socket.socket(
                 socket.AF_INET,
@@ -31,7 +29,6 @@ class DVRBase(object):
                 0,
             )
         )
-        self.l.debug('1')
         yield gen.Task(
             self.c.connect,
             (
@@ -39,7 +36,6 @@ class DVRBase(object):
                 self.port,
             ),
         )
-        self.l.debug('2')
         self.l.debug('[{n}] reconnect finish\n'.format(**self.__dict__))
         callback(None)
 
