@@ -79,12 +79,12 @@ def hls_chunk_name(i):
     """ Имя i-го фрагмента/чанка """
     return chunk_tmpl % i
 
-# OUT_DIR = environment.out_dir
+db_path = os.path.expanduser(cfg['live']['db-path'])
 
 def out_fpath(chunk_dir, *fname):
-    """ Вернуть полный путь до файла в OUT_DIR """
+    """ Вернуть полный путь до файла в db-path """
     # return o_p.join(OUT_DIR, chunk_dir, *fname)
-    return o_p.join(cfg['live']['db-path'], chunk_dir, *fname)
+    return o_p.join(db_path, chunk_dir, *fname)
 
 # real_hds_chunking = get_env_value("real_hds_chunking", True)
 
@@ -143,8 +143,8 @@ def run_chunker(src_media_path, typ, chunk_dir, on_new_chunk, on_stop_chunking, 
     o_p.force_makedirs(out_fpath(chunk_dir))
 
     # ffmpeg_bin = environment.ffmpeg_bin
-    ffmpeg_bin = cfg['live']['ffmpeg-bin']
-
+    ffmpeg_bin = os.path.expanduser(cfg['live']['ffmpeg-bin'])
+    
     # :TRICKY: так отлавливаем сообщение от segment.c вида "starts with packet stream"
     in_opts = "-i " + src_media_path
     if emulate_live() and not is_batch:

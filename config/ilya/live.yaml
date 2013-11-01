@@ -1,0 +1,49 @@
+version: 0.01
+port: 8910
+environment: development
+db-path:    ~/opt/bl/f451/tmp/out_dir
+ffmpeg-bin: ~/opt/src/ffmpeg/git/ffmpeg/objs/inst/bin/ffmpeg
+
+logging_level:
+  tornado.access: INFO
+  tornado.application: INFO
+  stream: INFO
+  DVRReader: INFO
+  DVRWriter: INFO
+
+definitions:
+  360:
+    bitrate: 300000
+    bandwidth: 500000
+    out_number: 3
+  576:
+    bitrate: 500000
+    bandwidth: 900000
+    out_number: 2
+  720:
+    bitrate: 1400000
+    bandwidth: 1300000
+    out_number: 1
+
+# для тестирования мультикаста "на живую"
+#cast_one_source = "udp://239.0.0.5:1234" # 239 - после транскодера
+#cast_one_source = "udp://235.3.3.3:8888" # некий tsplay
+#cast_one_source = "udp://236.1.1.1:1234" # cразу после "декриптора"
+
+is_test: true
+emulate_live: true
+
+use_hds: true # false # 
+real_hds_chunking: true
+
+dvr-host: 127.0.0.1
+do_write_dvr: false # true # 
+
+use_sendfile: true
+
+max_total: 72
+multibitrate_testing: false
+
+stream-always-lst:
+  - pervyj
+
