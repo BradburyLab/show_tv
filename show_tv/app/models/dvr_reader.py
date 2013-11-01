@@ -79,19 +79,23 @@ class DVRReader(DVRBase):
 
             self.l.debug('[DVRReader]')
 
-            startstamp, duration, metalen = struct.unpack('=QQQ', chunk_data)
+            (
+                startstamp,
+                duration,
+                # metalen,
+            ) = struct.unpack('=QQ', chunk_data)
             self.l.debug('[DVRReader] <= startstamp = {0}'.format(startstamp))
             self.l.debug('[DVRReader] <= duration = {0}'.format(duration))
-            self.l.debug('[DVRReader] <= metalen = {0}'.format(metalen))
+            # self.l.debug('[DVRReader] <= metalen = {0}'.format(metalen))
 
-            metadata = io.read(metalen)
-            self.l.debug('[DVRReader] <= metadata = {0}'.format(metadata))
+            # metadata = io.read(metalen)
+            # self.l.debug('[DVRReader] <= metadata = {0}'.format(metadata))
 
             playlist.append({
                 'startstamp': startstamp,
                 'duration': duration,
-                'metalen': metalen,
-                'metadata': metadata,
+                # 'metalen': metalen,
+                # 'metadata': metadata,
             })
 
         self.l.debug('[DVRReader] range finish <<<<<<<<<<<<<<<\n')
