@@ -1,5 +1,5 @@
 # coding: utf-8
-import argparse
+# import argparse
 import socket
 import os
 import errno
@@ -36,9 +36,9 @@ def handle_write(self):
         except socket.error as e:
             # :COPY_N_PASTE:
             if e.args[0] in (errno.EWOULDBLOCK, errno.EAGAIN):
-                if isinstance(dat, argparse.Namespace):
-                    dat.f.close()
-                self.ws_buffer.popleft()
+                # if isinstance(dat, argparse.Namespace):
+                #     dat.f.close()
+                # self.ws_buffer.popleft()
                 break
             else:
                 if e.args[0] not in (errno.EPIPE, errno.ECONNRESET):
