@@ -85,7 +85,6 @@ def setup_logging():
         setup_file_logger(name, logging_level, logger)
     # ----- </logging.tornado>
     # <logging.application> -----
-    # level = logging.DEBUG if get_env_value("debug_logging", is_test) else logging.INFO
     for name in (
         'stream',
         'DVRReader',
@@ -135,12 +134,9 @@ for cfg_file_name in (
         cfg[cfg_file_name] = yaml.load(cfg_file)
 
 
-# def get_env_value(key, def_value=None):
-#     return getattr(environment, key, def_value)
-
-
-# cast_one_source = get_env_value("cast_one_source", None)
-# is_test = not cast_one_source and environment.is_test
+def get_cfg_value(key, def_value=None):
+    #return getattr(environment, key, def_value)
+    return cfg['live'].get(def_value)
 
 # Устанавливаем логи
 setup_logging()

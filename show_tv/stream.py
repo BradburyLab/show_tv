@@ -25,15 +25,14 @@ IOLoop = tornado.ioloop.IOLoop.instance()
 import configuration
 from configuration import (
     make_struct,
-    # environment,
-    # get_env_value,
+    get_cfg_value,
     cfg,
 )
 import api
 
-is_test = cfg['live']['is_test']
 
-# PORT = 8910
+cast_one_source = get_cfg_value("cast_one_source", None)
+is_test = not cast_one_source and cfg['live']['is_test']
 
 def int_ceil(float_):
     """ Округлить float в больщую сторону """
@@ -86,7 +85,7 @@ def out_fpath(chunk_dir, *fname):
     # return o_p.join(OUT_DIR, chunk_dir, *fname)
     return o_p.join(db_path, chunk_dir, *fname)
 
-# real_hds_chunking = get_env_value("real_hds_chunking", True)
+real_hds_chunking = get_cfg_value("real_hds_chunking", True)
 
 def get_chunk_fpath(r_t_b, i):
     typ = r_t_b.typ
@@ -113,8 +112,7 @@ def written_chunks(chunk_range):
 
 def is_test_hds(chunk_range):
     # :REFACTOR: chunk_range.r_t_b.typ
-    # return not real_hds_chunking and (chunk_range.r_t_b.typ == StreamType.HDS)
-    return not cfg['live']['real_hds_chunking'] and (chunk_range.r_t_b.typ == StreamType.HDS)
+    return not real_hds_chunking and (chunk_range.r_t_b.typ == StreamType.HDS)
 
 def may_serve_pl(chunk_range):
     """ Можно ли вещать канал = достаточно ли чанков для выдачи в плейлисте """
@@ -131,8 +129,7 @@ def may_serve_pl(chunk_range):
     return ready_chunks(chunk_range) >= min_cnt
 
 def emulate_live():
-    return cfg['live']['emulate_live']
-    # return is_test and get_env_value("emulate_live", True)
+    return is_test and get_cfg_value("emulate_live", True)
 
 def run_chunker(src_media_path, typ, chunk_dir, on_new_chunk, on_stop_chunking, is_batch=False):
     """ Запустить ffmpeg для фрагментирования файла/исходника src_media_path для
@@ -240,7 +237,7 @@ def test_src_fpath(fname):
 def test_media_path(bitrate):
     # return list_bl_tv.make_path("pervyj.ts")+
     # return test_src_fpath("pervyj-720x406.ts")
-    fname = "pervyj-{0}.ts".format(bitrate) if cfg['live']['multibitrate_testing'] else "pervyj-720x406.ts"
+    fname = "pervyj-{0}.ts".format(bitrate) if get_cfg_value('multibitrate_testing', True) else "pervyj-720x406.ts"
     return test_src_fpath(fname)
 
 global_variables = make_struct(

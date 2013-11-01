@@ -11,20 +11,6 @@ logging_level:
   DVRReader: INFO
   DVRWriter: INFO
 
-definitions:
-  360:
-    bitrate: 300000
-    bandwidth: 500000
-    out_number: 3
-  576:
-    bitrate: 500000
-    bandwidth: 900000
-    out_number: 2
-  720:
-    bitrate: 1400000
-    bandwidth: 1300000
-    out_number: 1
-
 # для тестирования мультикаста "на живую"
 #cast_one_source = "udp://239.0.0.5:1234" # 239 - после транскодера
 #cast_one_source = "udp://235.3.3.3:8888" # некий tsplay
