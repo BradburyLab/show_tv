@@ -337,7 +337,6 @@ def start_ffmpeg_chunking(chunk_range):
                 duration=duration,
                 is_pvr=True,
                 path_payload=path_payload,
-                metadata=b'{"metadata_key": "metadata_value"}',
             )
             
             # :TRICKY: tornado умеет генерить ссылки только для простых случаев
