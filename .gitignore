@@ -18,3 +18,10 @@ tmp/*
 log/*
 !log/.keep
 env
+
+__*
+
+#config/**/*.yaml
+#!config/**/example*
+!config/.keep
+
