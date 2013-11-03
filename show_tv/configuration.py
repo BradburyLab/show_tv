@@ -133,12 +133,13 @@ for cfg_file_name in (
     ) as cfg_file:
         cfg[cfg_file_name] = yaml.load(cfg_file)
 
+# вычисление environment по имени директории конфигов
+if not "environment" in cfg['live']:
+    cfg['live']["environment"] = os.path.basename(args.config)
 
 def get_cfg_value(key, def_value=None):
     #return getattr(environment, key, def_value)
-    return cfg['live'].get(def_value)
+    return cfg['live'].get(key, def_value)
 
 # Устанавливаем логи
 setup_logging()
-
-# use_sendfile = get_env_value("use_sendfile", True)
