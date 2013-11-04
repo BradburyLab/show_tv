@@ -1,9 +1,12 @@
 # куда записывать чанки для live
 db-path: /vagrant/f451/tmp/live
+
 # путь до ffmpeg=нарезателя чанков
 ffmpeg-bin: /home/vany/ffmpeg/objs/inst/bin/ffmpeg
+
 # адрес сервера DVR; если пусто или null, то DVR не пишется
 dvr-host: 127.0.0.1
+
 # работа в тестовом/нет режиме (для разработчиков)
 # (сделать по умолчанию false, когда выйдет в production)
 is_test: true

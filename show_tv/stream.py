@@ -366,7 +366,7 @@ def start_ffmpeg_chunking(chunk_range):
     elif is_test:
         src_media_path = test_media_path(resolution)
     else:
-        out_number = cfg['live']['definitions'][resolution]['out_number']
+        out_number = streaming_resolutions[resolution]['out_number']
         src_media_path = refname2address_dictionary[refname][out_number]
 
     chunk_dir = "{0}/{1}".format(refname, resolution)
