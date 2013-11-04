@@ -854,7 +854,7 @@ if not stream_all_channels:
     # список вещаемых каналов типа RTClass = (refname, typ) прямо сейчас 
     activity_set = set()
     
-    stream_always_lst = get_cfg_value("stream_always_lst", ['pervyj'])
+    stream_always_lst = get_cfg_value("stream-always-lst", ['pervyj'])
     
     def stop_inactives():
         """ Прекратить вещание каналов, которые никто не смотрит в течении STOP_PERIOD=10 минут """
@@ -887,7 +887,8 @@ def main():
     # :TODO: поменять порт по умолчанию на 8451 (или 9451?), как написано
     # в документации
     port = get_cfg_value("port", 8910)
-    stream_logger.info(
+    log_status = stream_logger.warning
+    log_status(
         '\n'
         'Fahrenheit 451 mediaserver. Frontend OTT server.\n'
         'Copyright Bradbury Lab, 2013\n'
@@ -950,7 +951,7 @@ def main():
     application.listen(port)
     global_variables.application = application
 
-    stream_logger.info("Starting IOLoop...")
+    log_status("Starting IOLoop...")
     IOLoop.start()
     
 if __name__ == "__main__":
