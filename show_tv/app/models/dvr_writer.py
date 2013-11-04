@@ -56,7 +56,7 @@ class DVRWriter(DVRBase):
         self.l.debug('[DVRWriter] => path_payload = {0}'.format(path_payload))
 
         pack = struct.pack(
-            "=32sLQLBL",
+            api.DVR_PREFIX_FMT,
             # (1) (32s) Имя ассета
             name,
             # (2) (L) Битрейт

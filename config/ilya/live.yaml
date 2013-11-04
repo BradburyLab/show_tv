@@ -1,6 +1,6 @@
 db-path:    ~/opt/bl/f451/tmp/out_dir
 ffmpeg-bin: ~/opt/src/ffmpeg/git/ffmpeg/objs/inst/bin/ffmpeg
-dvr-host: null # 127.0.0.1 # 
+dvr-host: 127.0.0.1 # null # 
 
 logging_level:
   tornado.access: INFO
@@ -23,4 +23,5 @@ multibitrate_testing: false
 stream-always-lst:
   - pervyj
 
-stream_all_channels: false
+#stream_all_channels: false
+

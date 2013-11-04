@@ -40,3 +40,11 @@ def asset_name_rt(refname, typ):
 
 def asset_name(r_t_b):
     return asset_name_rt(r_t_b.refname, r_t_b.typ)
+
+# (1) (32s) Имя ассета
+# (2) (L) Битрейт
+# (3) (Q) Время начала чанка
+# (4) (L) Длительность чанка в мс (int),
+# (5) (B) Это PVR?
+# (6) (L) Длина payload
+DVR_PREFIX_FMT = "=32sLQLBL"
