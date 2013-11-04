@@ -896,6 +896,15 @@ def main():
         .format(port)
     )
 
+    # увеличиваем максим. возможное кол-во открываемых файлов до возможного
+    # максимума (под Ubuntu это значение по умолчанию есть `ulimit -n` = 4096)
+    # :TRICKY: если 4096 не хватает, т.е. вылезает "Too many open files", и это не
+    # утечка незакрытых файлов, то поправить /etc/security/limits.conf и перезайти: 
+    # * hard nofile 100500
+    import resource
+    hard_limit = resource.getrlimit(resource.RLIMIT_NOFILE)[1]
+    resource.setrlimit(resource.RLIMIT_NOFILE, (hard_limit, hard_limit))
+
     if stream_all_channels:
         refnames = refname2address_dictionary.keys()
     else:
