@@ -20,6 +20,12 @@ def try_read_bytes(stream, num_bytes, callback, streaming_callback=None):
         callback((False, b''.join(stream._read_buffer)))
     stream.set_close_callback(handle_close)
 
+#
+#
+#
+
+is_verbose = False
+
 import api
 import struct
 
@@ -27,6 +33,10 @@ PREFIX_SZ = struct.calcsize(api.DVR_PREFIX_FMT)
 
 def write_error(txt):
     print("ERROR:", txt)
+
+def print_log(*args):
+    if is_verbose:
+        print(*args)
 
 @gen.engine
 def handle_dvr_stream(self, stream, address):
@@ -40,9 +50,12 @@ def handle_dvr_stream(self, stream, address):
             break
         
         tpl = struct.unpack(api.DVR_PREFIX_FMT, data)
-        print(tpl)
-        payload_len = tpl[-1]
+        mn  = tpl[0]
+        if mn != api.DVR_MAGIC_NUMBER:
+            write_error("DVR_MAGIC_NUMBER is wrong: 0x%x" % mn)
+        print_log(tpl)
         
+        payload_len = tpl[-1]
         is_ok, data = yield gen.Task(try_read_bytes, stream, payload_len, streaming_callback=on_read)
         if not is_ok:
             write_error("not full payload")
@@ -50,10 +63,17 @@ def handle_dvr_stream(self, stream, address):
     print("Stream is closed:", address)
 
 def on_read(data):
-    print(len(data))
+    print_log(len(data))
 
 if __name__ == '__main__':
-    from test_sendfile import start_tcp_server, run_loop
+    # :REFACTOR:
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        '--verbose',
+        dest='is_verbose', type=bool, default=False,
+    )
+    is_verbose = parser.parse_args().is_verbose
 
     is_dvr_read = True    
     if is_dvr_read:
@@ -62,6 +82,8 @@ if __name__ == '__main__':
         def handle_stream(self, stream, address):
             stream.read_until_close(on_read, streaming_callback=on_read)
             
+    from test_sendfile import start_tcp_server, run_loop
+    
     port = 6451
     start_tcp_server(handle_stream, port)
     run_loop()

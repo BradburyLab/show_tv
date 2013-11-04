@@ -57,6 +57,8 @@ class DVRWriter(DVRBase):
 
         pack = struct.pack(
             api.DVR_PREFIX_FMT,
+            # (0) (L) DVR_MAGIC_NUMBER
+            api.DVR_MAGIC_NUMBER,
             # (1) (32s) Имя ассета
             name,
             # (2) (L) Битрейт
