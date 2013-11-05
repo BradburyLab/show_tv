@@ -12,12 +12,10 @@ import yaml
 # import o_p
 import api
 
-
 make_struct = api.make_struct
 
 cur_directory = os.path.dirname(__file__)
 log_directory = os.path.join(cur_directory, '../log')
-
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -52,23 +50,14 @@ def parse_args():
     # return make_struct(**res)
     return parser.parse_args()
 
-from lib.log import Formatter
-
-def setup_file_logger(logger_name, level, logger):
-    formatter = Formatter(color=False)
-    f = logging.FileHandler(
-        os.path.join(
-            cfg['path_log'],
-            '{0}.{1}.log'.format(
-                cfg['live']['environment'],
-                logger_name,
-            )
-        ),
-        mode='w'
+def log_name2path(logger_name):
+    return os.path.join(
+        cfg['path_log'],
+        '{0}.{1}.log'.format(
+            cfg['live']['environment'],
+            logger_name,
+        )
     )
-    f.setLevel(level)
-    f.setFormatter(formatter)
-    logger.addHandler(f)
 
 def setup_logging():
     # <logging.tornado> -----
@@ -82,7 +71,7 @@ def setup_logging():
         logging_level = getattr(logging, cfg['live']['logging_level'][name])
         logger.setLevel(logging_level)
 
-        setup_file_logger(name, logging_level, logger)
+        api.setup_file_logger(log_name2path(name), logging_level, logger)
     # ----- </logging.tornado>
     # <logging.application> -----
     for name in (
@@ -93,17 +82,10 @@ def setup_logging():
         logging_level = getattr(logging, cfg['live']['logging_level'][name])
 
         logger = logging.getLogger(name)
-        logger.setLevel(logging_level)
         logger.propagate = False
         logger.handlers = []
 
-        formatter = Formatter(color=True)
-        ch = logging.StreamHandler()
-        ch.setLevel(logging_level)
-        ch.setFormatter(formatter)
-        logger.addHandler(ch)
-
-        setup_file_logger(name, logging_level, logger)
+        api.setup_logger(logger, log_name2path(name), logging_level)
     # ----- </logging.application>
 
 # :TRICKY: окружение нужно в самом начале, поэтому -

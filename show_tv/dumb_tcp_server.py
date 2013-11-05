@@ -24,23 +24,29 @@ def try_read_bytes(stream, num_bytes, callback, streaming_callback=None):
 #
 #
 
-is_verbose = False
-
 import api
 import struct
 
 PREFIX_SZ = struct.calcsize(api.DVR_PREFIX_FMT)
 
-def write_error(txt):
-    print("ERROR:", txt)
+import logging
+logger = logging.getLogger()
 
-def print_log(*args):
-    if is_verbose:
-        print(*args)
+def write_error(txt):
+    logger.error(txt)
+
+def print_log(arg):
+    #if is_verbose:
+        #print(arg)
+    logger.debug(arg)
+
+def print_stream_event(is_open, address):
+    txt = "Stream is opened" if is_open else "Stream is closed"
+    logger.warning("%s: %s", txt, address)
 
 @gen.engine
 def handle_dvr_stream(self, stream, address):
-    print("Stream is opened:", address)
+    print_stream_event(True, address)
     while True:
         is_ok, data = yield gen.Task(try_read_bytes, stream, PREFIX_SZ)
         if not is_ok:
@@ -60,7 +66,8 @@ def handle_dvr_stream(self, stream, address):
         if not is_ok:
             write_error("not full payload")
             break
-    print("Stream is closed:", address)
+        
+    print_stream_event(False, address)
 
 def on_read(data):
     print_log(len(data))
@@ -82,8 +89,13 @@ if __name__ == '__main__':
     
     args = parser.parse_args()
     
-    is_verbose  = args.is_verbose
     is_dvr_read = not args.is_not_dvr_read
+
+    # логирование
+    import os
+    log_fpath = os.path.join(os.path.dirname(__file__), '../log/d_t_s.log')
+    logging_level = logging.DEBUG if args.is_verbose else logging.INFO
+    api.setup_logger(logger, log_fpath, logging_level)
     
     if is_dvr_read:
         handle_stream = handle_dvr_stream

@@ -51,3 +51,28 @@ DVR_MAGIC_NUMBER = 0x0000f451
 # (5) (B) Это PVR?
 # (6) (L) Длина payload
 DVR_PREFIX_FMT = "=L32sLQLBL"
+
+from lib.log import Formatter
+import logging
+
+def setup_file_logger(fpath, level, logger):
+    formatter = Formatter(color=False)
+    f = logging.FileHandler(
+        fpath,
+        mode='w'
+    )
+    f.setLevel(level)
+    f.setFormatter(formatter)
+    logger.addHandler(f)
+
+def setup_console_logger(logger, logging_level):
+    formatter = Formatter(color=True)
+    ch = logging.StreamHandler()
+    ch.setLevel(logging_level)
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
+    
+def setup_logger(logger, fpath, logging_level):
+    logger.setLevel(logging_level)
+    setup_console_logger(logger, logging_level)
+    setup_file_logger(fpath, logging_level, logger)
