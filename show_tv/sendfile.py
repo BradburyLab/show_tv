@@ -104,6 +104,12 @@ def write_to_stream(self, data, callback=None):
             
     try_write(self, callback)
 
+def handle_close_fd(self):
+    for is_sendfile, dat in self.ws_buffer:
+        if is_sendfile:
+            dat.f.close()
+    self.ws_buffer.clear()
+
 import api
 
 def sendfile(self, fpath, size, callback=None):
@@ -130,16 +136,41 @@ def sendfile(self, fpath, size, callback=None):
         replace_meth("_handle_write", handle_write)
         replace_meth("writing", writing)
         replace_meth("write", write_to_stream)
+        
+        orig_close_fd = self.close_fd
+        def close_fd(self):
+            handle_close_fd(self)
+            orig_close_fd()
+        replace_meth("close_fd", close_fd)
 
     # :TRICKY: сразу открываем файл, потому что так проще
-    # :TRICKY: нельзя менять значения tuple'а
-    #SFClass = collections.namedtuple('SFClass', ['f', 'off', 'sz'])
-    #sf = SFClass(open(fpath, "rb"), 0, size)
-    sf = api.make_struct(
-        f   = open(fpath, "rb"), 
-        off = 0, 
-        sz  = size,
-    )
-    self.ws_buffer.append((True, sf))
 
-    try_write(self, callback)
+    # :TRICKY: жестокая реальность говорит нам, что файлы
+    # могут не открываться, "Too many open files" => тогда
+    # ничего не остается, кроме как закрыть поток, иначе будем
+    # писать ерунду
+    is_ok = True
+    try:
+        f = open(fpath, "rb")
+    except Exception:
+        is_ok = False
+        
+    if is_ok:
+        # :TRICKY: нельзя менять значения tuple'а
+        #SFClass = collections.namedtuple('SFClass', ['f', 'off', 'sz'])
+        #sf = SFClass(open(fpath, "rb"), 0, size)
+        sf = api.make_struct(
+            f   = f, 
+            off = 0, 
+            sz  = size,
+        )
+        self.ws_buffer.append((True, sf))
+    
+        try_write(self, callback)
+    else:
+        self.close()
+        if callback:
+            callback()
+        
+    # возвращать всегда нужно None, ведь ответ получают через callback
+

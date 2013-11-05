@@ -71,11 +71,20 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '--verbose',
-        dest='is_verbose', type=bool, default=False,
+        dest='is_verbose', action="store_true",
     )
-    is_verbose = parser.parse_args().is_verbose
-
-    is_dvr_read = True    
+    # :TODO: разобраться, как можно попроще записывать
+    # булевские аргументы по умолчанию=True
+    parser.add_argument(
+        '--is_not_dvr_read',
+        dest='is_not_dvr_read', action="store_true",
+    )
+    
+    args = parser.parse_args()
+    
+    is_verbose  = args.is_verbose
+    is_dvr_read = not args.is_not_dvr_read
+    
     if is_dvr_read:
         handle_stream = handle_dvr_stream
     else:
