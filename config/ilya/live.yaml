@@ -20,7 +20,6 @@ logging_level:
 is_test: true
 #emulate_live: true
 #use_sendfile: true
-use_hds: true
 
 multibitrate_testing: false
 

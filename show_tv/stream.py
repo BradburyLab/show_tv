@@ -40,8 +40,11 @@ def int_ceil(float_):
 
 StreamType = api.StreamType
 
+def enum_iterator(enum):
+    return iter((k, v) for k, v in vars(enum).items() if k.upper() == k)
+
 def enum_values(enum):
-    return tuple(v for k, v in vars(enum).items() if k.upper() == k)
+    return tuple(v for k, v in enum_iterator(enum))
 
 from collections import namedtuple
 
@@ -908,7 +911,18 @@ def main():
         refnames = refname2address_dictionary.keys()
     else:
         refnames = stream_always_lst
-        
+
+    # включенные по умолчанию форматы вещания
+    stream_fmt_defaults = {
+        "hls": True,
+        "hds": True,
+    }
+    stream_fmt_set = set()
+    for key, def_val in stream_fmt_defaults.items():
+        is_on = get_cfg_value("stream_{0}".format(key), def_val)
+        if is_on:
+            stream_fmt_set.add(vars(StreamType)[key.upper()])
+    
     for i, refname in enumerate(refnames):
         # эмуляция большого запуска для разработчика - не грузим сильно машину
         # :TRICKY: вещание всех каналов (132) в 6 битрейтах (3*HLS + 3*HDS) у меня (Муравьев) уже не влезает по памяти (8Gb),
@@ -916,11 +930,8 @@ def main():
         if is_test and i >= 30:
             break
         
-        for typ in enum_values(StreamType):
-            # :TODO: по умолчанию HDS пока не готово
-            use_hds = get_cfg_value("use_hds", False)
-            if use_hds or (typ != StreamType.HDS):
-                force_chunking(RTClass(refname, typ))
+        for typ in stream_fmt_set:
+            force_chunking(RTClass(refname, typ))
 
     if stream_by_request:
         set_stop_timer()
