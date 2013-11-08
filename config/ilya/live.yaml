@@ -23,9 +23,14 @@ is_test: true
 
 multibitrate_testing: false
 
-stream-always-lst:
-  - pervyj
+# если true, то вещание идет "по требованию", по умолчанию false;
+stream_by_request: true
 
-#stream_all_channels: false
+# вещать все каналы из конфига udp-source.yaml, если не stream_by_request,
+# по умолчанию false; список stream-always-lst игнорируется
+#stream_all_channels: true
 
 #do_profiling: true
+
+stream-always-lst:
+  - pervyj

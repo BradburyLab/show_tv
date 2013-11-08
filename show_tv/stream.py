@@ -687,9 +687,7 @@ def check_dvr_pars(startstamp, duration):
     if (startstamp is None) != (duration is None):
         raise_error(400)
 
-def get_playlist_multibitrate(hdl, asset, extension, startstamp=None, duration=None):
-    check_dvr_pars(startstamp, duration)
-
+def get_mb_playlist(hdl, asset, extension, is_live):
     typ = Fmt2Typ[extension]
     if typ == StreamType.HLS:
         hdl.set_header("Content-Type", "application/vnd.apple.mpegurl")
@@ -705,11 +703,15 @@ def get_playlist_multibitrate(hdl, asset, extension, startstamp=None, duration=N
         )
         hdl.write(playlist)
     elif typ == StreamType.HDS:
-        get_f4m(hdl, asset, startstamp is None)
+        get_f4m(hdl, asset, is_live)
     else:
         assert False
 
     hdl.finish()
+
+def get_playlist_multibitrate(hdl, asset, extension, startstamp=None, duration=None):
+    check_dvr_pars(startstamp, duration)
+    get_mb_playlist(hdl, asset, extension, startstamp is None)
 
 def ts2sec(ts):
     # хранилка держит timestamp'ы в миллисекундах
@@ -938,30 +940,71 @@ def main():
 
     for sig in [signal.SIGTERM, signal.SIGINT]:
         signal.signal(sig, on_signal)
-    
+    #
     # обработчики
-    handlers = [
-        # :TODO: нужна проверка существования канала такая же, что и в get_playlist()
-        # :REFACTOR: куча копипасты
-        make_get_handler(r"^/(?P<asset>[-\w]+)/(?:(?P<startstamp>\d+)/(?P<duration>\d+)/)?smil.(?P<extension>m3u8|f4m)", get_playlist_multibitrate, name="playlist_multibitrate"),
-        make_get_handler(r"^/(?P<asset>[-\w]+)/(?:(?P<startstamp>\d+)/(?P<duration>\d+)/)?(?P<bitrate>\d+)\.(?P<extension>m3u8|abst)", get_playlist_singlebitrate),
-        make_get_handler(r"^/(?P<asset>[-\w]+)/(?P<startstamp>\d+)/(?P<duration>\d+)/(?P<bitrate>\d+)\.ts", get_hls_dvr),
-        make_get_handler(r"^/(?P<asset>[-\w]+)/(?P<startstamp>\d+)/(?P<duration>\d+)/(?P<bitrate>\d+)/Seg1-Frag(?P<frag_num>\d+)", get_hds_dvr),
-    ]
-    
+    # 
     if use_sendfile:
         from static_handler import StaticFileHandler
         static_cls_handler = StaticFileHandler
     else:
         static_cls_handler = tornado.web.StaticFileHandler
+        
+    def make_static_handler(pattern, root_fdir, handler_cls):
+        return pattern, handler_cls, {"path": root_fdir}
+    
+    wowza_links = get_cfg_value("wowza-links", True)
+    
+    def append_static_handler(pattern, handler_cls):
+        handlers.append(make_static_handler(pattern, db_path, handler_cls))
 
-    def make_static_handler(chunk_dir):
-        return r"/%s/(.*)" % chunk_dir, static_cls_handler, {"path": out_fpath(chunk_dir)}
-
-    for refname in refname2address_dictionary:
-        handlers.append(
-            make_static_handler(refname),
-        )
+    if wowza_links:
+        def make_wwz_pattern(pattern):
+            return r"^/live/(?:_definst_/)smil:(?P<asset>[-\w]+)_sd/" + pattern
+        
+        def make_wwz_handler(pattern, get_handler):
+            return make_get_handler(make_wwz_pattern(pattern), get_handler)
+        
+        def wwz_mb_playlist(hdl, asset):
+            get_mb_playlist(hdl, asset, "f4m", True)
+            
+        def wwz_sb_playlist(hdl, asset, bitrate):
+            get_playlist_singlebitrate(hdl, asset, bitrate, "abst")
+        
+        handlers = [
+            # [ /live/_definst_/ ] smil:discoverychannel_sd/manifest.f4m
+            make_wwz_handler(r"manifest.f4m",           wwz_mb_playlist),
+            make_wwz_handler(r"(?P<bitrate>\d+)\.abst", wwz_sb_playlist),
+            
+            #make_stream_handler(r"(?P<asset>[-\w]+)/(?:(?P<startstamp>\d+)/(?P<duration>\d+)/)?(?P<bitrate>\d+)\.(?P<extension>m3u8|abst)", get_playlist_singlebitrate),
+            #make_stream_handler(r"(?P<asset>[-\w]+)/(?P<startstamp>\d+)/(?P<duration>\d+)/(?P<bitrate>\d+)\.ts", get_hls_dvr),
+            #make_stream_handler(r"(?P<asset>[-\w]+)/(?P<startstamp>\d+)/(?P<duration>\d+)/(?P<bitrate>\d+)/Seg1-Frag(?P<frag_num>\d+)", get_hds_dvr),
+        ]
+        
+        class WowzaStaticHandler(static_cls_handler):
+            def get(self, asset, path, include_body=True):
+                path = "{0}/{1}".format(refname, path)
+                super().get(path, include_body=include_body)
+                
+        # /live/_definst_/smil:discoverychannel_sd/360/Seg1-Frag22
+        append_static_handler(make_wwz_pattern(r"(?P<path>.*)"), WowzaStaticHandler)
+    else:
+        def make_stream_handler(match_pattern, get_handler):
+            return make_get_handler("^/(?P<asset>[-\w]+)/" + match_pattern, get_handler)
+        
+        handlers = [
+            # :TODO: нужна проверка существования канала такая же, что и в get_playlist()
+            # :REFACTOR: куча копипасты
+            make_stream_handler(r"(?:(?P<startstamp>\d+)/(?P<duration>\d+)/)?smil.(?P<extension>m3u8|f4m)", get_playlist_multibitrate),
+            make_stream_handler(r"(?:(?P<startstamp>\d+)/(?P<duration>\d+)/)?(?P<bitrate>\d+)\.(?P<extension>m3u8|abst)", get_playlist_singlebitrate),
+            make_stream_handler(r"(?P<startstamp>\d+)/(?P<duration>\d+)/(?P<bitrate>\d+)\.ts", get_hls_dvr),
+            make_stream_handler(r"(?P<startstamp>\d+)/(?P<duration>\d+)/(?P<bitrate>\d+)/Seg1-Frag(?P<frag_num>\d+)", get_hds_dvr),
+        ]
+    
+        #for refname in refname2address_dictionary:
+            #handlers.append(
+                #make_static_handler(r"/%s/(.*)" % refname, out_fpath(refname)),
+            #)
+        append_static_handler(r"/(.*)", static_cls_handler)
 
     # всеразрешающий crossdomain.xml для HDS
     def get_cd_xml(hdl):
