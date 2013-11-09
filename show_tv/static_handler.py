@@ -8,6 +8,10 @@ def is_head(request):
 
 class StaticFileHandler(tornado.web.StaticFileHandler):
     
+    def initialize(self, **kwargs):
+        self.write_mode = True
+        super().initialize(**kwargs)
+    
     def head(self, path):
         self.get(path, include_body=False)
 
@@ -35,9 +39,22 @@ class StaticFileHandler(tornado.web.StaticFileHandler):
             
         # явно размер выставляем
         self.set_header("Content-Length", end-beg)
+        
+        self.write_mode = False
             
     def finish(self, chunk=None):
         """Finishes this response, ending the HTTP request."""
+        
+        # :TRICKY: другое поведение здесь - не пользуемся RequestHandler.write();
+        # однако в случае исключений (404) write_error() использует write(), поэтому
+        # включаем прошлое поведение
+        if chunk is not None:
+            self.write(chunk)
+        if self._write_buffer:
+            assert self.write_mode
+            super().finish()
+            return
+        
         if self._finished:
             raise RuntimeError("finish() called twice.  May be caused "
                                "by using async operations without the "
@@ -88,10 +105,11 @@ class StaticFileHandler(tornado.web.StaticFileHandler):
         # _ui_module closures to allow for faster GC on CPython.
         self.ui = None
 
-    # запрещаем все манипуляции с содержимым контента
-    # (собственно cls.get_content() не запретить, потому что это
-    # метод класса)
     def compute_etag(self):
+        # запрещаем все манипуляции с содержимым контента
+        # (собственно cls.get_content() не запретить, потому что это
+        # метод класса)
+        # :TODO: если self.write_mode, то может потребоваться прошлое поведение
         assert False
     
 def main():

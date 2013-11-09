@@ -544,7 +544,8 @@ def serve_hds_pl(hdl, chunk_range):
 
     serve_hds_abst(hdl, chunk_range.beg, lst, True)
 
-def get_f4m(hdl, refname, is_live):
+def get_f4m(hdl, refname, is_live, url_prefix=''):
+    """ url_prefix доп. url для плейлистов и фрагментов """
     # согласно FlashMediaManifestFileFormatSpecification.pdf
     hdl.set_header("Content-Type", "application/f4m+xml")
     # :TRICKY: не нужно вроде
@@ -555,7 +556,13 @@ def get_f4m(hdl, refname, is_live):
     #f4m = gen_hds.gen_single_bitrate_f4m(refname, s_b + ".abst", is_live, url)
     medias = []
     for rsl, item in streaming_resolutions.items():
-        medias.append(gen_hds.gen_f4m_media(refname, "%s.abst" % rsl, item["bitrate"], "%s/" % rsl))
+        abst_url = "%s.abst" % rsl
+        seg_url  = "%s/" % rsl
+        if url_prefix:
+            # :REFACTOR:
+            abst_url = "{0}/{1}".format(url_prefix, abst_url)
+            seg_url  = "{0}/{1}".format(url_prefix, seg_url)
+        medias.append(gen_hds.gen_f4m_media(refname, abst_url, item["bitrate"], seg_url))
     f4m = gen_hds.gen_f4m(refname, is_live, "\n".join(medias))
     hdl.write(f4m)
 
@@ -687,7 +694,7 @@ def check_dvr_pars(startstamp, duration):
     if (startstamp is None) != (duration is None):
         raise_error(400)
 
-def get_mb_playlist(hdl, asset, extension, is_live):
+def get_mb_playlist(hdl, asset, extension, is_live, url_prefix):
     typ = Fmt2Typ[extension]
     if typ == StreamType.HLS:
         hdl.set_header("Content-Type", "application/vnd.apple.mpegurl")
@@ -703,7 +710,7 @@ def get_mb_playlist(hdl, asset, extension, is_live):
         )
         hdl.write(playlist)
     elif typ == StreamType.HDS:
-        get_f4m(hdl, asset, is_live)
+        get_f4m(hdl, asset, is_live, url_prefix)
     else:
         assert False
 
@@ -711,7 +718,7 @@ def get_mb_playlist(hdl, asset, extension, is_live):
 
 def get_playlist_multibitrate(hdl, asset, extension, startstamp=None, duration=None):
     check_dvr_pars(startstamp, duration)
-    get_mb_playlist(hdl, asset, extension, startstamp is None)
+    get_mb_playlist(hdl, asset, extension, startstamp is None, '')
 
 def ts2sec(ts):
     # хранилка держит timestamp'ы в миллисекундах
@@ -755,13 +762,11 @@ def get_playlist_dvr(hdl, r_t_b, startstamp, duration):
         raise_error(404)
 
 @gen.engine
-def get_hds_dvr(hdl, asset, startstamp, duration, bitrate, frag_num):
+def get_hds_dvr(hdl, r_t_b, startstamp, duration, frag_num):
     frag_num = int(frag_num)
     if frag_num < 1:
         raise_error(404)
     idx = frag_num - 1
-
-    r_t_b = r_t_b_key(asset, StreamType.HDS, int(bitrate))
 
     # :TRICKY: заново берем плейлист, потому что нужно отсчитать
     # фрагмент с индексом idx; решено, что в "продакшене" хранилка сумеет
@@ -959,25 +964,73 @@ def main():
 
     if wowza_links:
         def make_wwz_pattern(pattern):
-            return r"^/live/(?:_definst_/)smil:(?P<asset>[-\w]+)_sd/" + pattern
+            return r"^/live/(?:_definst_/)" + pattern
         
-        def make_wwz_handler(pattern, get_handler):
-            return make_get_handler(make_wwz_pattern(pattern), get_handler)
+        def wwz_mb_playlist(hdl, asset, is_live, url_prefix):
+            get_mb_playlist(hdl, asset, "f4m", is_live, url_prefix)
         
-        def wwz_mb_playlist(hdl, asset):
-            get_mb_playlist(hdl, asset, "f4m", True)
+        # live 
+        def make_wwz_live_pattern(pattern):
+            return make_wwz_pattern(r"smil:(?P<asset>[-\w]+)_sd/" + pattern)
+        
+        def make_wwz_live_handler(pattern, get_handler):
+            return make_get_handler(make_wwz_live_pattern(pattern), get_handler)
+        
+        def wwz_mb_live_playlist(hdl, asset):
+            wwz_mb_playlist(hdl, asset, True, '')
             
-        def wwz_sb_playlist(hdl, asset, bitrate):
+        def wwz_sb_live_playlist(hdl, asset, bitrate):
             get_playlist_singlebitrate(hdl, asset, bitrate, "abst")
+            
+        # DVR 
+        def wwz_mb_dvr_playlist(hdl, month, day, asset):
+            start, duration = hdl.get_argument("start"), hdl.get_argument("duration")
+            if not(start and duration):
+                raise_error(400) # Bad Request
+            wwz_mb_playlist(hdl, asset, False, "{0}/{1}".format(start, duration))
+            
+        def make_wwz_dvr_handler(pattern, get_handler):
+            pattern = make_wwz_pattern(r"(?P<month>\d\d)_(?P<day>\d\d)_(?P<asset>[-\w]+)_(?:\d+)p/" + pattern)
+            return make_get_handler(pattern, get_handler)
+
+        def make_wwz_dvr_proxy_handler(pattern, get_handler):
+            def handler(hdl, month, day, asset, startstamp, duration, bitrate, **kwargs):
+                # :REFACTOR:
+                bitrate = int(bitrate)
+                typ = Fmt2Typ["abst"]
+                r_t_b = r_t_b_key(asset, typ, bitrate)
+                
+                # вычисление startstamp
+                td = datetime.timedelta(milliseconds=int(startstamp))
+                def make_ts(year):
+                    dt = datetime.datetime(year=year, month=int(month), day=int(day)) + td
+                    return dt.timestamp()
+                
+                now = datetime.datetime.utcnow()
+                today = now.date()
+                
+                ts1, ts2 = make_ts(today.year), make_ts(today.year-1)
+                # выбираем дату, что ближе к сейчас
+                now = now.timestamp()
+                res_startstamp = ts1 if abs(now - ts1) < abs(now - ts2) else ts2
+                
+                ts = int(res_startstamp*1000) # в миллисекундах
+                
+                return get_handler(hdl, r_t_b, ts, duration, **kwargs)
+            return make_wwz_dvr_handler(r"(?P<startstamp>\d+)/(?P<duration>\d+)/" + pattern, handler)
         
         handlers = [
-            # [ /live/_definst_/ ] smil:discoverychannel_sd/manifest.f4m
-            make_wwz_handler(r"manifest.f4m",           wwz_mb_playlist),
-            make_wwz_handler(r"(?P<bitrate>\d+)\.abst", wwz_sb_playlist),
+            # /live/ [ _definst_/ ] smil:discoverychannel_sd/manifest.f4m
+            make_wwz_live_handler(r"manifest.f4m",           wwz_mb_live_playlist),
+            make_wwz_live_handler(r"(?P<bitrate>\d+)\.abst", wwz_sb_live_playlist),
             
-            #make_stream_handler(r"(?P<asset>[-\w]+)/(?:(?P<startstamp>\d+)/(?P<duration>\d+)/)?(?P<bitrate>\d+)\.(?P<extension>m3u8|abst)", get_playlist_singlebitrate),
-            #make_stream_handler(r"(?P<asset>[-\w]+)/(?P<startstamp>\d+)/(?P<duration>\d+)/(?P<bitrate>\d+)\.ts", get_hls_dvr),
-            #make_stream_handler(r"(?P<asset>[-\w]+)/(?P<startstamp>\d+)/(?P<duration>\d+)/(?P<bitrate>\d+)/Seg1-Frag(?P<frag_num>\d+)", get_hds_dvr),
+            # DVR
+            # live/ [ _definst_/ ] 11_07_discoverychannel_576p/manifest.f4m?DVR&start=123456789000&duration=60000
+            make_wwz_dvr_handler(r"manifest.f4m", wwz_mb_dvr_playlist),
+            # live/ [ _definst_/ ] 11_07_discoverychannel_576p/123456789000/60000/360.abst
+            make_wwz_dvr_proxy_handler(r"(?P<bitrate>\d+)\.abst", get_playlist_dvr),
+            # live/ [ _definst_/ ] 11_07_discoverychannel_576p/123456789000/60000/360/Seg1-FragN
+            make_wwz_dvr_proxy_handler(r"(?P<bitrate>\d+)/Seg1-Frag(?P<frag_num>\d+)", get_hds_dvr),
         ]
         
         class WowzaStaticHandler(static_cls_handler):
@@ -986,18 +1039,21 @@ def main():
                 super().get(path, include_body=include_body)
                 
         # /live/_definst_/smil:discoverychannel_sd/360/Seg1-Frag22
-        append_static_handler(make_wwz_pattern(r"(?P<path>.*)"), WowzaStaticHandler)
+        append_static_handler(make_wwz_live_pattern(r"(?P<path>.*)"), WowzaStaticHandler)
     else:
         def make_stream_handler(match_pattern, get_handler):
             return make_get_handler("^/(?P<asset>[-\w]+)/" + match_pattern, get_handler)
         
+        def on_get_hds_dvr(hdl, asset, startstamp, duration, bitrate, frag_num):
+            r_t_b = r_t_b_key(asset, StreamType.HDS, int(bitrate))
+            get_hds_dvr(hdl, r_t_b, startstamp, duration, frag_num)
+        
         handlers = [
-            # :TODO: нужна проверка существования канала такая же, что и в get_playlist()
             # :REFACTOR: куча копипасты
             make_stream_handler(r"(?:(?P<startstamp>\d+)/(?P<duration>\d+)/)?smil.(?P<extension>m3u8|f4m)", get_playlist_multibitrate),
             make_stream_handler(r"(?:(?P<startstamp>\d+)/(?P<duration>\d+)/)?(?P<bitrate>\d+)\.(?P<extension>m3u8|abst)", get_playlist_singlebitrate),
             make_stream_handler(r"(?P<startstamp>\d+)/(?P<duration>\d+)/(?P<bitrate>\d+)\.ts", get_hls_dvr),
-            make_stream_handler(r"(?P<startstamp>\d+)/(?P<duration>\d+)/(?P<bitrate>\d+)/Seg1-Frag(?P<frag_num>\d+)", get_hds_dvr),
+            make_stream_handler(r"(?P<startstamp>\d+)/(?P<duration>\d+)/(?P<bitrate>\d+)/Seg1-Frag(?P<frag_num>\d+)", on_get_hds_dvr),
         ]
     
         #for refname in refname2address_dictionary:
