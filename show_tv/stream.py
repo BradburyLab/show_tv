@@ -1035,7 +1035,7 @@ def main():
         
         class WowzaStaticHandler(static_cls_handler):
             def get(self, asset, path, include_body=True):
-                path = "{0}/{1}".format(refname, path)
+                path = "{0}/{1}".format(asset, path)
                 super().get(path, include_body=include_body)
                 
         # /live/_definst_/smil:discoverychannel_sd/360/Seg1-Frag22
