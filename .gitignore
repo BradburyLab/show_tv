@@ -23,6 +23,7 @@ __*
 
 #config/**/*.yaml
 #!config/**/example*
+#!config/example*
 config/*.yaml
-!config/example*
+config/production
 !config/.keep

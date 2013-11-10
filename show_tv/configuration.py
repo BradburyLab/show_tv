@@ -31,7 +31,7 @@ def parse_args():
     )
     parser.add_argument(
         '-l', '--log',
-        dest='log', type=str, default='/var/log/451',
+        dest='log', type=str, default=None,
         help='path to log folder',
     )
     parser.add_argument(
@@ -60,6 +60,11 @@ def log_name2path(logger_name):
     )
 
 def setup_logging():
+    path_log = args.log
+    if path_log is None:
+        path_log = get_cfg_value("log-path", '/var/log/451')
+    cfg['path_log'] = os.path.expanduser(path_log)
+    
     # <logging.tornado> -----
     for name in (
         'tornado.access',
@@ -94,7 +99,6 @@ args = parse_args()
 
 cfg = {
     'path_config': args.config,
-    'path_log': args.log,
     'do_show_version': args.version,
 }
 for cfg_file_name in (

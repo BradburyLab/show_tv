@@ -30,33 +30,42 @@ logging_level:
   DVRReader: INFO
   DVRWriter: INFO
 
+# вещать по ссылкам как у Wowza, например,
+# /live/_definst_/smil:discoverychannel_sd/manifest.f4m ; по умолчанию true
+#wowza-links: true
+
+# куда писать логи, по умолчанию /var/log/451
+#log-path: ~/opt/bl/f451/git/log
+
 ########################### 
 # Недокументированные опции
 
 version: 0.01
 port: 8910
-environment: development
+#environment: development
 
-definitions:
-  360:
-    bitrate: 300000
-    bandwidth: 500000
-    out_number: 3
-  576:
-    bitrate: 500000
-    bandwidth: 900000
-    out_number: 2
-  720:
-    bitrate: 1400000
-    bandwidth: 1300000
-    out_number: 1
+#definitions:
+#  360:
+#    bitrate: 300000
+#    bandwidth: 500000
+#    out_number: 3
+#  576:
+#    bitrate: 500000
+#    bandwidth: 900000
+#    out_number: 2
+#  720:
+#    bitrate: 1400000
+#    bandwidth: 1300000
+#    out_number: 1
 
-max_total: 72
-use_sendfile: false
-real_hds_chunking: true
-multibitrate_testing: true
-emulate_live: true
-do_write_dvr: true
+#max_total: 72
+#use_sendfile: false
+#real_hds_chunking: true
+#multibitrate_testing: true
+#emulate_live: true
+#do_write_dvr: true
+#do_profiling: true
+#insert_dvr_magic_number: true
 
 ################### 
 # stream-always-lst

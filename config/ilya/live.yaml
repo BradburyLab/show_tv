@@ -30,6 +30,8 @@ stream_by_request: true
 # по умолчанию false; список stream-always-lst игнорируется
 #stream_all_channels: true
 
+log-path: ~/opt/bl/f451/git/log
+
 #do_profiling: true
 
 stream-always-lst:
