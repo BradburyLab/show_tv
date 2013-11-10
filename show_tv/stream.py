@@ -829,7 +829,12 @@ def kill_cr(cr):
     cr.stop_signal = True
 
     if not is_test_hds(cr):
-        os.kill(cr.pid, signal.SIGTERM)
+        # :TRICKY: если нет мультикаста, то ffmpeg не завершается
+        # на первый SIGTERM
+        # :TODO: в идеале надо бы пускать пару (SIGTERM, SIGKILL)
+        # через таймаут, но лень (только сообщение о новом чанке может не успеть
+        # придти)
+        os.kill(cr.pid, signal.SIGKILL) # SIGTERM)
 
 def try_kill_cr(cr):
     is_started = cr.is_started
