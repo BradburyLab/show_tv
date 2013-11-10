@@ -27,7 +27,7 @@ def try_read_bytes(stream, num_bytes, callback, streaming_callback=None):
 import api
 import struct
 
-PREFIX_SZ = struct.calcsize(api.DVR_PREFIX_FMT)
+dvr_prefix_format = api.make_dvr_prefix_format(True)
 
 import logging
 logger = logging.getLogger()
@@ -47,6 +47,8 @@ def print_stream_event(is_open, address):
 @gen.engine
 def handle_dvr_stream(self, stream, address):
     print_stream_event(True, address)
+    
+    PREFIX_SZ = struct.calcsize(dvr_prefix_format)
     while True:
         is_ok, data = yield gen.Task(try_read_bytes, stream, PREFIX_SZ)
         if not is_ok:
@@ -55,7 +57,7 @@ def handle_dvr_stream(self, stream, address):
                 write_error("not full prefix: %s" % data)
             break
         
-        tpl = struct.unpack(api.DVR_PREFIX_FMT, data)
+        tpl = struct.unpack(dvr_prefix_format, data)
         mn  = tpl[0]
         if mn != api.DVR_MAGIC_NUMBER:
             write_error("DVR_MAGIC_NUMBER is wrong: 0x%x" % mn)
