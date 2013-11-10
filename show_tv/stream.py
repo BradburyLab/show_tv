@@ -269,7 +269,8 @@ def start_chunking(chunk_range):
         start_ffmpeg_chunking(chunk_range)
 
 stream_logger = logging.getLogger('stream')
-        
+log_status = stream_logger.warning
+
 def do_stop_chunking(chunk_range):
     """ Функция, которую нужно выполнить по окончанию вещания (когда закончил
         работу chunker=ffmpeg """
@@ -281,7 +282,7 @@ def do_stop_chunking(chunk_range):
         chunk_range.stop_signal = False
     else:
         # обычно это означает, что ffmpeg не хочет работать сразу
-        stream_logger.warning("Chunking has been stopped unexpectedly: %s", chunk_range)
+        log_status("Chunking has been stopped unexpectedly: %s", chunk_range)
 
     if global_variables.stop_streaming:
         stop_lst = global_variables.stop_lst
@@ -838,7 +839,7 @@ def try_kill_cr(cr):
 
 def on_signal(_signum, _ignored_):
     """ Прекратить работу сервера show_tv по Ctrl+C """
-    print("Request to stop ...")
+    log_status("Request to stop ...")
     # :TRICKY: вариант с ожиданием завершения оставшихся работ
     # есть на http://tornadogists.org/4643396/ , нам пока не нужен
     global_variables.stop_streaming = True
@@ -880,7 +881,7 @@ if stream_by_request:
                     break
             
             if is_started and r_t not in activity_set and r_t.refname not in stream_always_lst:
-                print("Stopping inactive:", r_t)
+                log_status("Stopping inactive: %s", r_t)
                 for c_r in for_all_resolutions(r_t):
                     try_kill_cr(c_r)
                 
@@ -896,7 +897,6 @@ def main():
     # :TODO: поменять порт по умолчанию на 8451 (или 9451?), как написано
     # в документации
     port = get_cfg_value("port", 8910)
-    log_status = stream_logger.warning
     log_status(
         '\n'
         'Fahrenheit 451 mediaserver. Frontend OTT server.\n'
