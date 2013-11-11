@@ -10,7 +10,7 @@ from tornado.ioloop import IOLoop
 def fork_slaves(slave_cnt):
     from tornado.process import _pipe_cloexec, PipeIOStream
     
-    lst = []
+    is_child, lst = False, []
     for i in range(slave_cnt):
         #r, w = os.pipe()
         r, w = _pipe_cloexec()

@@ -34,5 +34,8 @@ log-path: ~/opt/bl/f451/git/log
 
 #do_profiling: true
 
+run-web-workers: true # false # 
+#web-workers-count: -1
+
 stream-always-lst:
   - pervyj

@@ -20,7 +20,6 @@ import functools
 import tornado.process
 import tornado.web
 import tornado.ioloop
-IOLoop = tornado.ioloop.IOLoop.instance()
 
 import configuration
 from configuration import (
@@ -288,7 +287,7 @@ def do_stop_chunking(chunk_range):
         stop_lst = global_variables.stop_lst
         stop_lst.discard(chunk_range.r_t_b)
         if not stop_lst:
-            IOLoop.stop()
+            global_variables.io_loop.stop()
     else:
         if may_restart:
             start_chunking(chunk_range)
@@ -508,9 +507,9 @@ def start_test_hds_chunking(chunk_range):
 
             if not is_test or emulate_live():
                 timeout = gen_hds.get_frg_ts(frg) - streaming_start - timer_func()
-                IOLoop.add_timeout(datetime.timedelta(seconds=timeout), on_new_chunk)
+                global_variables.io_loop.add_timeout(datetime.timedelta(seconds=timeout), on_new_chunk)
             else:
-                IOLoop.add_callback(on_new_chunk)
+                global_variables.io_loop.add_callback(on_new_chunk)
 
     on_new_chunk()
 
@@ -857,7 +856,7 @@ def on_signal(_signum, _ignored_):
     if stop_lst:
         global_variables.stop_lst = set(stop_lst)
     else:
-        IOLoop.stop()
+        global_variables.io_loop.stop()
 
 #
 # вещание по запросу
@@ -896,63 +895,9 @@ if stream_by_request:
     STOP_PERIOD = 600 # 10 минут
     def set_stop_timer():
         period = datetime.timedelta(seconds=STOP_PERIOD)
-        IOLoop.add_timeout(period, stop_inactives)
+        global_variables.io_loop.add_timeout(period, stop_inactives)
 
-def main():
-    # :TODO: поменять порт по умолчанию на 8451 (или 9451?), как написано
-    # в документации
-    port = get_cfg_value("port", 8910)
-    log_status(
-        '\n'
-        'Fahrenheit 451 mediaserver. Frontend OTT server.\n'
-        'Copyright Bradbury Lab, 2013\n'
-        'Listens at 0.0.0.0:{0}\n'
-        .format(port)
-    )
-
-    # увеличиваем максим. возможное кол-во открываемых файлов до возможного
-    # максимума (под Ubuntu это значение по умолчанию есть `ulimit -n` = 4096)
-    # :TRICKY: если 4096 не хватает, т.е. вылезает "Too many open files", и это не
-    # утечка незакрытых файлов, то поправить /etc/security/limits.conf и перезайти: 
-    # * hard nofile 100500
-    import resource
-    hard_limit = resource.getrlimit(resource.RLIMIT_NOFILE)[1]
-    resource.setrlimit(resource.RLIMIT_NOFILE, (hard_limit, hard_limit))
-
-    if not stream_by_request and get_cfg_value("stream_all_channels", False):
-        refnames = refname2address_dictionary.keys()
-    else:
-        refnames = stream_always_lst
-
-    # включенные по умолчанию форматы вещания
-    stream_fmt_defaults = {
-        "hls": True,
-        "hds": True,
-    }
-    stream_fmt_set = set()
-    for key, def_val in stream_fmt_defaults.items():
-        is_on = get_cfg_value("stream_{0}".format(key), def_val)
-        if is_on:
-            stream_fmt_set.add(vars(StreamType)[key.upper()])
-    
-    for i, refname in enumerate(refnames):
-        # эмуляция большого запуска для разработчика - не грузим сильно машину
-        # :TRICKY: вещание всех каналов (132) в 6 битрейтах (3*HLS + 3*HDS) у меня (Муравьев) уже не влезает по памяти (8Gb),
-        # поэтому только первые 80 (а с 4Gb - только 30 без тормозов)
-        if is_test and i >= 30:
-            break
-        
-        for typ in stream_fmt_set:
-            force_chunking(RTClass(refname, typ))
-
-    if stream_by_request:
-        set_stop_timer()
-
-    for sig in [signal.SIGTERM, signal.SIGINT]:
-        signal.signal(sig, on_signal)
-    #
-    # обработчики
-    # 
+def activate_web(sockets):
     if use_sendfile:
         from static_handler import StaticFileHandler
         static_cls_handler = StaticFileHandler
@@ -1073,16 +1018,102 @@ def main():
     handlers.append(make_get_handler(r"/crossdomain.xml", get_cd_xml, False))
 
     application = tornado.web.Application(handlers)
-    application.listen(port)
-    global_variables.application = application
+    #application.listen(port)
+    
+    from tornado.httpserver import HTTPServer
+    server = HTTPServer(application)
+    #sockets = tornado.netutil.bind_sockets(port)
+    server.add_sockets(sockets)
+     
+    # не нужно
+    #global_variables.application = application
+
+def main():
+    # :TODO: поменять порт по умолчанию на 8451 (или 9451?), как написано
+    # в документации
+    port = get_cfg_value("port", 8910)
+    log_status(
+        '\n'
+        'Fahrenheit 451 mediaserver. Frontend OTT server.\n'
+        'Copyright Bradbury Lab, 2013\n'
+        'Listens at 0.0.0.0:{0}\n'
+        .format(port)
+    )
+    
+    from tornado.netutil import bind_sockets
+    sockets = bind_sockets(port)
+
+    # увеличиваем максим. возможное кол-во открываемых файлов до возможного
+    # максимума (под Ubuntu это значение по умолчанию есть `ulimit -n` = 4096)
+    # :TRICKY: если 4096 не хватает, т.е. вылезает "Too many open files", и это не
+    # утечка незакрытых файлов, то поправить /etc/security/limits.conf и перезайти: 
+    # * hard nofile 100500
+    import resource
+    hard_limit = resource.getrlimit(resource.RLIMIT_NOFILE)[1]
+    resource.setrlimit(resource.RLIMIT_NOFILE, (hard_limit, hard_limit))
+
+    run_workers = get_cfg_value("run-web-workers", False)
+    if run_workers:
+        MAX_W_CNT = -1
+        workers_count = get_cfg_value("web-workers-count", MAX_W_CNT)
+        if workers_count == MAX_W_CNT:
+            workers_count = max(tornado.process.cpu_count() - 1, 1) 
+        from mp_server import fork_slaves
+        is_child, data = fork_slaves(workers_count)
+        
+        is_master = not is_child
+        if is_child:
+            log_status("Worker %s is started", data[0])
+    else:
+        is_master = True
+    global_variables.io_loop = tornado.ioloop.IOLoop.instance()
+
+    if is_master:
+        if not stream_by_request and get_cfg_value("stream_all_channels", False):
+            refnames = refname2address_dictionary.keys()
+        else:
+            refnames = stream_always_lst
+    
+        # включенные по умолчанию форматы вещания
+        stream_fmt_defaults = {
+            "hls": True,
+            "hds": True,
+        }
+        stream_fmt_set = set()
+        for key, def_val in stream_fmt_defaults.items():
+            is_on = get_cfg_value("stream_{0}".format(key), def_val)
+            if is_on:
+                stream_fmt_set.add(vars(StreamType)[key.upper()])
+        
+        for i, refname in enumerate(refnames):
+            # эмуляция большого запуска для разработчика - не грузим сильно машину
+            # :TRICKY: вещание всех каналов (132) в 6 битрейтах (3*HLS + 3*HDS) 
+            # у меня (Муравьев) уже не влезает по памяти (8Gb),
+            # поэтому только первые 80 (а с 4Gb - только 30 без тормозов)
+            if is_test and i >= 30:
+                break
+            
+            for typ in stream_fmt_set:
+                force_chunking(RTClass(refname, typ))
+    
+        if stream_by_request:
+            set_stop_timer()
+    
+        for sig in [signal.SIGTERM, signal.SIGINT]:
+            signal.signal(sig, on_signal)
+
+    if not(is_master and run_workers):
+        activate_web(sockets)
 
     log_status("Starting IOLoop...")
+    
+    io_loop = global_variables.io_loop
     if get_cfg_value("do_profiling", False):
         #from profile import Profile
         from cProfile import Profile
         prof = Profile()
 
-        orig_impl = IOLoop._impl
+        orig_impl = io_loop._impl
         orig_poll = orig_impl.poll
         
         def poll_wrapper(*args, **kw):
@@ -1100,18 +1131,18 @@ def main():
                 attr = poll_wrapper if attr_name == "poll" else getattr(self.obj, attr_name)
                 return attr
         
-        IOLoop._impl = Proxy(orig_impl)
+        io_loop._impl = Proxy(orig_impl)
         
         # по аналогии с runcall()
         prof.enable()
         
-        IOLoop.start()
+        io_loop.start()
         
         prof.disable()
         fstats = o_p.join(cfg['path_log'], "stream-{0}.{1}".format(api.utcnow_str(), "py_stats"))
         prof.dump_stats(fstats)        
     else:
-        IOLoop.start()
+        io_loop.start()
     
 if __name__ == "__main__":
     main()
