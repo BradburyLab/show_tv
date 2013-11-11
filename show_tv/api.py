@@ -48,15 +48,18 @@ DVR_MAGIC_NUMBER = 0x0000f451
 # (3) (Q) Время начала чанка
 # (4) (L) Длительность чанка в мс (int),
 # (5) (B) Это PVR?
-# (6) (L) Длина payload
-DVR_PREFIX_FMT = "32sLQLBL"
+DVR_PREFIX_FMT = "32sLQLB"
 
-def make_dvr_prefix_format(insert_dvr_magic_number):
+def make_prefix_format(insert_dvr_magic_number=True, mid_format=''):
     # (0) (L) DVR_MAGIC_NUMBER
     c = "L" if insert_dvr_magic_number else ""
         
     # little-endian правильней, чем "=" = native, ящетаю
-    return "<{0}{1}".format(c, DVR_PREFIX_FMT)
+    # (-1) (L) Длина payload
+    return "<{0}{1}L".format(c, mid_format)
+
+def make_dvr_prefix_format(insert_dvr_magic_number):
+    return make_prefix_format(insert_dvr_magic_number, DVR_PREFIX_FMT)
 
 from lib.log import Formatter
 import logging

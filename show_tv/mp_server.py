@@ -1,60 +1,88 @@
 #!/usr/bin/env python3
 # coding: utf-8
 
-if __name__ == '__main__':
-    # не нужен, такие дела
-    #import multiprocessing
+# не нужен, такие дела
+#import multiprocessing
 
-    import os
-    from tornado.ioloop import IOLoop
-    
-    # fork можно делать только до создания ioloop'а
-    # (вообще говоря любого), см. tornado.process.fork_processes()
-    assert not IOLoop.initialized()
+import os
+from tornado.ioloop import IOLoop
 
-    #r, w = os.pipe()
+def fork_slaves(slave_cnt):
     from tornado.process import _pipe_cloexec, PipeIOStream
-    r, w = _pipe_cloexec()
     
-    pid = os.fork()
-    is_child = pid == 0
+    lst = []
+    for i in range(slave_cnt):
+        #r, w = os.pipe()
+        r, w = _pipe_cloexec()
+        
+        # fork можно делать только до создания ioloop'а
+        # (вообще говоря любого), см. tornado.process.fork_processes()
+        assert not IOLoop.initialized()
+        
+        pid = os.fork()
+        is_child = pid == 0
+        
+        fd       = r if is_child else w
+        to_close = w if is_child else r
+        os.close(to_close)
     
-    fd       = r if is_child else w
-    to_close = w if is_child else r
-    os.close(to_close)
+        if is_child:
+            res = True, (i, PipeIOStream(fd))
+            # :KLUDGE: а без лишних движений как?
+            for w_fd in lst:
+                os.close(w_fd)
+            break
+        else:
+            lst.append(fd)
+        
+    if not is_child:
+        res = False, [PipeIOStream(fd) for fd in lst]
+    return res
+    
 
+if __name__ == '__main__':
+    
+    is_child, data = fork_slaves(20)
+    
     io_loop = IOLoop.instance()
-    stream  = PipeIOStream(fd)
 
-    from dumb_tcp_server import try_read_bytes
+    from dumb_tcp_server import read_messages
+    import api
+    
+    fmt = api.make_prefix_format()
 
     if is_child:
-        @gen.engine
-        def handle_message():
-            while True:
-                # :REFACTOR:
-                is_ok, data = yield gen.Task(try_read_bytes, stream, PREFIX_SZ)
-                if not is_ok:
-                    # :TRICKY: закрытый сокет без данных - ок
-                    if data:
-                        write_error("not full prefix: %s" % data)
-                break
+        assert len(data) == 2
+        idx, stream = data
+        
+        def child_print(*args):
+            print(idx, ":", *args)
             
-            io_loop.stop()
-        handle_message()
+        def on_message(tpl, data):
+            child_print(tpl, data)
+        read_messages(stream, fmt, on_message, io_loop.stop)
+        
         io_loop.start()
+        child_print("Exit")
     else:
-        pass
+        import struct
+        from test_sendfile import one_second_pause
 
-    #class MainHandler(tornado.web.RequestHandler):
-        #def get(self):
-            #self.write("Greetings from the instance %s!" % tornado.process.task_id())
+        def send_message(stream, data):
+            msg = struct.pack(fmt, api.DVR_MAGIC_NUMBER, len(data)) + data
+            stream.write(msg)
+        
+        def do_on_write_completed(stream, callback):
+            stream.write(b'', callback)
+            
+        #assert len(data) == 1
+        print("Master:", len(data))
+        for stream in data:
+            for i in range(3):
+                send_message(stream, b'ggg')
+                
+            #do_on_write_completed(stream, stream.close)
+            stream.close()
+        one_second_pause()
 
-    #app = tornado.web.Application([
-        #(r"/", MainHandler),
-    #])
-
-    #server = tornado.httpserver.HTTPServer(app)
-    #server.bind(8888)
-    #server.start(0)  # autodetect number of cores and fork a process for each
-    #tornado.ioloop.IOLoop.instance().start()
+        io_loop.start()

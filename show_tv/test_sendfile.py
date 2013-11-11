@@ -53,6 +53,22 @@ def write_string(strm, s, callback):
         yield gen.Task(strm.write, s)
     callback()
 
+def one_second_pause():
+    # сразу не выходим, потому что тогда серверу не дадим отработать
+    #io_loop.stop()
+    import datetime
+    def on_timeout():
+        io_loop.stop()
+    io_loop.add_timeout(datetime.timedelta(seconds=1), on_timeout)
+
+def close_and_one_second_pause(strm):
+    # :TRICKY: если не закрывать соединение, то 
+    # данные к клиенту не придут: flush()'а нет, а другой вариант - 
+    # пробовать TCP_NODELAY, http://stackoverflow.com/questions/855544/is-there-a-way-to-flush-a-posix-socket
+    strm.close()
+    
+    one_second_pause()
+
 def do_client():
     
     class lcls:
@@ -120,17 +136,7 @@ def do_client():
         # конец передачи данных
         yield gen.Task(write_number, strm, 0)
         
-        # :TRICKY: если не закрывать соединение, то 
-        # данные к клиенту не придут: flush()'а нет, а другой вариант - 
-        # пробовать TCP_NODELAY, http://stackoverflow.com/questions/855544/is-there-a-way-to-flush-a-posix-socket
-        strm.close()
-        
-        # сразу не выходим, потому что тогда серверу не дадим отработать
-        #io_loop.stop()
-        import datetime
-        def on_timeout():
-            io_loop.stop()
-        io_loop.add_timeout(datetime.timedelta(seconds=1), on_timeout)
+        close_and_one_second_pause(stream)
         
     write()
 

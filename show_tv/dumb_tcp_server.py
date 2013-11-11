@@ -4,8 +4,18 @@ from tornado import gen
 
 def try_read_bytes(stream, num_bytes, callback, streaming_callback=None):
     """ Прочитать num_bytes либо меньше, если поток закроется раньше """
-    def handle_read(data):
-        callback((True, data))
+    def finish(is_ok, data):
+        callback((is_ok, data))
+
+    def read_from_buffer(num_bytes):    
+        rest_cnt = stream._read_buffer_size
+        
+        cnt = min(rest_cnt, num_bytes)
+        is_ok = rest_cnt >= num_bytes
+        
+        def handle_read(data):
+            finish(is_ok, data)
+        stream.read_bytes(cnt, handle_read, streaming_callback=streaming_callback)
     
     # :TRICKY: hack-вариант - одновременно read_until_close() и 
     # read_bytes() вызвать нельзя из-за повторной установки _read_callback =>
@@ -13,12 +23,31 @@ def try_read_bytes(stream, num_bytes, callback, streaming_callback=None):
     # Побочный эффект: если сработает _read_bytes, то останется висеть флаг
     # _read_until_close, и наоборот
     #stream._read_bytes = num_bytes
-    #stream.read_until_close(handle_read, streaming_callback=handle_read)
+    #stream.read_until_close(handle_read_end, streaming_callback=streaming_callback)
     
-    stream.read_bytes(num_bytes, handle_read, streaming_callback=streaming_callback)
-    def handle_close():
-        callback((False, b''.join(stream._read_buffer)))
-    stream.set_close_callback(handle_close)
+    if stream.closed():
+        # :TRICKY: случай, когда канал закрыли, и буфера недостаточно -
+        # read_bytes() вызовет исключение StreamClosedError("Stream is closed"), поэтому
+        # смотрим только на буфер
+        read_from_buffer(num_bytes)
+    else:
+        def handle_read_end(data):
+            # убираем старый, иначе он после может сработать и вызвать "assert cnt is not None"
+            stream.set_close_callback(None)
+            finish(True, data)
+        stream.read_bytes(num_bytes, handle_read_end, streaming_callback=streaming_callback)
+        
+        def handle_close():
+            # cnt - остаток от num_bytes, что требовалось прочитать 
+            cnt = stream._read_bytes
+            # если сработал close(), значит read_bytes() не успел отработать =>
+            assert cnt is not None
+            
+            # :TRICKY: считаю, что это больший хак, чем получение доступа к _read_buffer_size
+            # и _read_bytes
+            #finish(False, b''.join(stream._read_buffer))
+            read_from_buffer(cnt)
+        stream.set_close_callback(handle_close)
 
 #
 #
@@ -26,8 +55,6 @@ def try_read_bytes(stream, num_bytes, callback, streaming_callback=None):
 
 import api
 import struct
-
-dvr_prefix_format = api.make_dvr_prefix_format(True)
 
 import logging
 logger = logging.getLogger()
@@ -45,12 +72,10 @@ def print_stream_event(is_open, address):
     logger.warning("%s: %s", txt, address)
 
 @gen.engine
-def handle_dvr_stream(self, stream, address):
-    print_stream_event(True, address)
-    
-    PREFIX_SZ = struct.calcsize(dvr_prefix_format)
+def read_messages(stream, dvr_prefix_format, on_message, callback=None, streaming_callback=None):
+    prefix_sz = struct.calcsize(dvr_prefix_format)
     while True:
-        is_ok, data = yield gen.Task(try_read_bytes, stream, PREFIX_SZ)
+        is_ok, data = yield gen.Task(try_read_bytes, stream, prefix_sz)
         if not is_ok:
             # :TRICKY: закрытый сокет без данных - ок
             if data:
@@ -64,11 +89,23 @@ def handle_dvr_stream(self, stream, address):
         print_log(tpl)
         
         payload_len = tpl[-1]
-        is_ok, data = yield gen.Task(try_read_bytes, stream, payload_len, streaming_callback=on_read)
+        is_ok, data = yield gen.Task(try_read_bytes, stream, payload_len, streaming_callback=streaming_callback)
         if not is_ok:
             write_error("not full payload")
             break
-        
+        on_message(tpl, data)
+     
+    if callback:   
+        callback()
+
+@gen.engine
+def handle_dvr_stream(self, stream, address):
+    print_stream_event(True, address)
+    
+    def on_message(tpl, data):
+        pass
+    yield gen.Task(read_messages, stream, api.make_dvr_prefix_format(True), on_message, streaming_callback=on_read)
+    
     print_stream_event(False, address)
 
 def on_read(data):
