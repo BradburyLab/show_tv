@@ -99,6 +99,8 @@ def get_chunk_fpath(r_t_b, i):
     return out_fpath(r_t_b.refname, str(r_t_b.bitrate), fname)
 
 def remove_chunks(rng, cr):
+    assert is_master_proc()
+    
     r_t_b = cr.r_t_b
     for i in rng:
         os.unlink(get_chunk_fpath(r_t_b, i))
@@ -251,6 +253,10 @@ global_variables = make_struct(
     stop_streaming=False
 )
 
+a_global_vars = api.global_variables
+def is_master_proc():
+    return a_global_vars.master_slave_data[0]
+
 def init_cr_start(chunk_range, is_ffmpeg_start):
     chunk_range.is_started = True
     chunk_range.beg = 0
@@ -264,6 +270,7 @@ import json
 class WorkerCommand:
     START     = 0
     NEW_CHUNK = 1
+    STOP      = 2
 
 def send_worker_command(cmd, chunk_range, *args):
     if a_global_vars.run_workers and is_master_proc():
@@ -299,6 +306,8 @@ def do_stop_chunking(chunk_range):
         работу chunker=ffmpeg """
     chunk_range.is_started = False
     remove_chunks(range(chunk_range.beg, chunk_range.end), chunk_range)
+    
+    send_worker_command(WorkerCommand.STOP, chunk_range)
 
     may_restart = not chunk_range.stop_signal
     if chunk_range.stop_signal:
@@ -679,10 +688,6 @@ def for_all_resolutions(r_t):
         r_t_b = r_t_b_key(r_t.refname, r_t.typ, rls)
         yield chunk_range_dictionary[r_t_b]
 
-a_global_vars = api.global_variables
-def is_master_proc():
-    return a_global_vars.master_slave_data[0]
-
 def force_chunking(r_t):
     """ Начать вещание канала по требованию """
 
@@ -880,20 +885,25 @@ def try_kill_cr(cr):
 
 def on_signal(_signum, _ignored_):
     """ Прекратить работу сервера show_tv по Ctrl+C """
-    log_status("Request to stop ...")
-    # :TRICKY: вариант с ожиданием завершения оставшихся работ
-    # есть на http://tornadogists.org/4643396/ , нам пока не нужен
-    global_variables.stop_streaming = True
-
-    stop_lst = []
-    for cr in chunk_range_dictionary.values():
-        if try_kill_cr(cr):
-            stop_lst.append(cr.r_t_b)
-
-    if stop_lst:
-        global_variables.stop_lst = set(stop_lst)
+    
+    if is_master_proc():
+        log_status("Request to stop ...")
+        # :TRICKY: вариант с ожиданием завершения оставшихся работ
+        # есть на http://tornadogists.org/4643396/ , нам пока не нужен
+        global_variables.stop_streaming = True
+    
+        stop_lst = []
+        for cr in chunk_range_dictionary.values():
+            if try_kill_cr(cr):
+                stop_lst.append(cr.r_t_b)
+    
+        if stop_lst:
+            global_variables.stop_lst = set(stop_lst)
+        else:
+            global_variables.io_loop.stop()
     else:
-        global_variables.io_loop.stop()
+        # рабочие процессы завершаются по закрытию мастера
+        pass
 
 #
 # вещание по запросу
@@ -1091,7 +1101,7 @@ def main():
     hard_limit = resource.getrlimit(resource.RLIMIT_NOFILE)[1]
     resource.setrlimit(resource.RLIMIT_NOFILE, (hard_limit, hard_limit))
 
-    run_workers = get_cfg_value("run-web-workers", False)
+    run_workers = get_cfg_value("run-web-workers", True)
     if run_workers:
         MAX_W_CNT = -1
         workers_count = get_cfg_value("web-workers-count", MAX_W_CNT)
@@ -1130,6 +1140,8 @@ def main():
                 elif cmd == WorkerCommand.NEW_CHUNK:
                     chunk_ts = args[0]
                     add_new_chunk(chunk_range, chunk_ts)
+                elif cmd == WorkerCommand.STOP:
+                    chunk_range.is_started = False
                 else:
                     assert False
                 
@@ -1179,8 +1191,8 @@ def main():
         if stream_by_request:
             set_stop_timer()
     
-        for sig in [signal.SIGTERM, signal.SIGINT]:
-            signal.signal(sig, on_signal)
+    for sig in [signal.SIGTERM, signal.SIGINT]:
+        signal.signal(sig, on_signal)
 
     if not(is_master and run_workers):
         activate_web(sockets)
