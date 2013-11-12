@@ -267,7 +267,7 @@ def start_chunking(chunk_range):
     else:
         start_ffmpeg_chunking(chunk_range)
 
-stream_logger = logging.getLogger('stream')
+stream_logger = api.stream_logger
 log_status = stream_logger.warning
 
 def do_stop_chunking(chunk_range):
@@ -1040,6 +1040,8 @@ def main():
         .format(port)
     )
     
+    # для мультипроцессинга: биндим порт сразу, чтобы потом работник(и)/основной
+    # процесс могли подключаться к нему TCPServer.add_sockets() для ожидания соединений 
     from tornado.netutil import bind_sockets
     sockets = bind_sockets(port)
 
@@ -1058,14 +1060,47 @@ def main():
         workers_count = get_cfg_value("web-workers-count", MAX_W_CNT)
         if workers_count == MAX_W_CNT:
             workers_count = max(tornado.process.cpu_count() - 1, 1) 
-        from mp_server import fork_slaves
-        is_child, data = fork_slaves(workers_count)
+        
+        import mp_server
+        
+        is_child, data = mp_server.fork_slaves(workers_count)
         
         is_master = not is_child
-        if is_child:
-            log_status("Worker %s is started", data[0])
+        m_s_data  = is_master, data
+        
+        from lib.log import update_fmt_prefix, FMT_PREFIX
+        
+        def update_fp(name):
+            update_fmt_prefix("{0} [{1}]".format(FMT_PREFIX, name))
+            
+        if is_master:
+            update_fp("M")
+            
+            # :TEMP!!!:
+            for stream in data:
+                mp_server.send_message(stream, b"ggg")
+        else:
+            idx, stream = data
+            update_fp(str(idx))
+            
+            def on_message(tpl, data):
+                stream_logger.debug("New message: %s, %s", tpl, data)
+                # :TODO!!!:
+                
+            def on_stop():
+                log_status("Request to exit from master")
+                
+            mp_server.setup_msg_handler(stream, on_message, on_stop)
+            
+            log_status("Worker %s is started", idx)
     else:
         is_master = True
+        m_s_data  = is_master, []
+
+    #a_g_v = api.global_variables
+    #a_g_v.run_workers       = run_workers
+    #a_g_v.master_slave_data = m_s_data
+        
     global_variables.io_loop = tornado.ioloop.IOLoop.instance()
 
     if is_master:

@@ -6,15 +6,21 @@ from tornado.log import LogFormatter
 from tornado.escape import _unicode
 from tornado.util import basestring_type
 
+FMT_PREFIX = '[%(asctime)s] [%(levelname)s]'
+
+fmt_preffix = FMT_PREFIX
+
+def update_fmt_prefix(new_prefix):
+    global fmt_preffix
+    fmt_preffix = new_prefix
 
 class Formatter(LogFormatter):
     def __init__(
         self,
-        fmt_date='%d/%b/%Y %H:%M:%S', fmt_preffix='[%(asctime)s] [%(levelname)s]',
+        fmt_date='%d/%b/%Y %H:%M:%S',
         *a, **k
     ):
         self.fmt_date = fmt_date
-        self.fmt_preffix = fmt_preffix
         super().__init__(*a, **k)
 
     def format(self, record):
@@ -26,7 +32,7 @@ class Formatter(LogFormatter):
 
         record.asctime = time.strftime(
             self.fmt_date, self.converter(record.created))
-        prefix = self.fmt_preffix % record.__dict__
+        prefix = fmt_preffix % record.__dict__
 
         if self._color:
             prefix = (self._colors.get(record.levelno, self._normal) +

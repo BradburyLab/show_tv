@@ -57,7 +57,7 @@ import api
 import struct
 
 import logging
-logger = logging.getLogger()
+logger = api.stream_logger # logging.getLogger()
 
 def write_error(txt):
     logger.error(txt)

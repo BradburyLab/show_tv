@@ -4,8 +4,12 @@
 # не нужен, такие дела
 #import multiprocessing
 
+from dumb_tcp_server import read_messages
+import api
+
 import os
 from tornado.ioloop import IOLoop
+import struct
 
 def fork_slaves(slave_cnt):
     from tornado.process import _pipe_cloexec, PipeIOStream
@@ -38,18 +42,25 @@ def fork_slaves(slave_cnt):
     if not is_child:
         res = False, [PipeIOStream(fd) for fd in lst]
     return res
-    
+
+mp_format = api.make_prefix_format()
+
+def setup_msg_handler(stream, on_message, callback):
+    stop = IOLoop.instance().stop
+    def on_stop():
+        callback()
+        stop()
+    read_messages(stream, mp_format, on_message, on_stop)
+
+def send_message(stream, data):
+    msg = struct.pack(mp_format, api.DVR_MAGIC_NUMBER, len(data)) + data
+    stream.write(msg)
 
 if __name__ == '__main__':
     
     is_child, data = fork_slaves(20)
     
     io_loop = IOLoop.instance()
-
-    from dumb_tcp_server import read_messages
-    import api
-    
-    fmt = api.make_prefix_format()
 
     if is_child:
         assert len(data) == 2
@@ -60,18 +71,16 @@ if __name__ == '__main__':
             
         def on_message(tpl, data):
             child_print(tpl, data)
-        read_messages(stream, fmt, on_message, io_loop.stop)
+            
+        def on_stop():
+            child_print("Exit")
+            
+        setup_msg_handler(stream, on_message, on_stop)
         
         io_loop.start()
-        child_print("Exit")
     else:
-        import struct
         from test_sendfile import one_second_pause
 
-        def send_message(stream, data):
-            msg = struct.pack(fmt, api.DVR_MAGIC_NUMBER, len(data)) + data
-            stream.write(msg)
-        
         def do_on_write_completed(stream, callback):
             stream.write(b'', callback)
             

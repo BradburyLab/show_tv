@@ -64,6 +64,8 @@ def make_dvr_prefix_format(insert_dvr_magic_number):
 from lib.log import Formatter
 import logging
 
+stream_logger = logging.getLogger('stream')
+
 def setup_file_logger(fpath, level, logger):
     formatter = Formatter(color=False)
     f = logging.FileHandler(
@@ -104,3 +106,6 @@ def ts2str(ts):
 def utcnow_str():
     return ts2str(utcnow())
 
+global_variables = make_struct(
+    run_workers = False,
+)
