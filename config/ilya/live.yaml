@@ -8,7 +8,7 @@ insert_dvr_magic_number: true
 logging_level:
   tornado.access: INFO
   tornado.application: INFO
-  stream: INFO
+  stream: DEBUG # INFO # 
   DVRReader: INFO
   DVRWriter: INFO
 

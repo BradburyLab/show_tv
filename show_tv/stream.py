@@ -27,8 +27,9 @@ from configuration import (
     get_cfg_value,
     cfg,
 )
-import api
 
+import api
+import mp_server
 
 cast_one_source = get_cfg_value("cast_one_source", None)
 is_test = not cast_one_source and cfg['live']['is_test']
@@ -250,22 +251,45 @@ global_variables = make_struct(
     stop_streaming=False
 )
 
-def start_chunking(chunk_range):
-    """ Запустить процесс вещания канала chunk_range.r_t_b.refname c типом
-        вещания chunk_range.r_t_b.typ (HLS или HDS) """
-    if global_variables.stop_streaming:
-        return
-
-    # инициализация
+def init_cr_start(chunk_range, is_ffmpeg_start):
     chunk_range.is_started = True
     chunk_range.beg = 0
     # номер следующего за пишущимся чанком
     chunk_range.end = 0
+    
+    if is_ffmpeg_start:
+        chunk_range.start_times = []
+
+import json
+class WorkerCommand:
+    START     = 0
+    NEW_CHUNK = 1
+
+def send_worker_command(cmd, chunk_range, *args):
+    if a_global_vars.run_workers and is_master_proc():
+        data = [cmd, chunk_range.r_t_b] + args
+        msg  = bytes(json.dumps(data), "ascii")
+        
+        for stream in a_global_vars.master_slave_data[1]:
+            mp_server.send_message(stream, msg)
+
+def start_chunking(chunk_range):
+    """ Запустить процесс вещания канала chunk_range.r_t_b.refname c типом
+        вещания chunk_range.r_t_b.typ (HLS или HDS) """
+    assert is_master_proc()
+    
+    if global_variables.stop_streaming:
+        return
+
+    # инициализация
+    init_cr_start(chunk_range, False)
 
     if is_test_hds(chunk_range):
         start_test_hds_chunking(chunk_range)
     else:
         start_ffmpeg_chunking(chunk_range)
+        
+    send_worker_command(WorkerCommand.START, chunk_range)
 
 stream_logger = api.stream_logger
 log_status = stream_logger.warning
@@ -309,6 +333,8 @@ def start_ffmpeg_chunking(chunk_range):
     chunk_range.start_times = []
 
     def on_new_chunk(chunk_ts):
+        send_worker_command(WorkerCommand.NEW_CHUNK, chunk_range, chunk_ts)
+        
         if chunk_range.end == 0:
             chunk_range.start = datetime.datetime.utcnow()
 
@@ -537,7 +563,7 @@ def serve_hds_abst(hdl, start_idx, frg_tbl, is_live):
     hdl.finish()
 
 def serve_hds_pl(hdl, chunk_range):
-    if cfg['live'].get('real_hds_chunking', True):
+    if real_hds_chunking:
         lst = gen_hds.make_frg_tbl(chunk_range.start_times)
     else:
         lst = chunk_range.frg_tbl[chunk_range.beg:ready_chk_end(chunk_range)]
@@ -648,13 +674,19 @@ def for_all_resolutions(r_t):
         r_t_b = r_t_b_key(r_t.refname, r_t.typ, rls)
         yield chunk_range_dictionary[r_t_b]
 
+a_global_vars = api.global_variables
+def is_master_proc():
+    return a_global_vars.master_slave_data[0]
+
 def force_chunking(r_t):
     """ Начать вещание канала по требованию """
 
     # стартуем все разрешения - мультибитрейт же
     res = True
+    
+    is_master = is_master_proc()
     for c_r in for_all_resolutions(r_t):
-        if not c_r.is_started:
+        if is_master and not c_r.is_started:
             start_chunking(c_r)
 
         if not c_r.is_started:
@@ -1061,8 +1093,6 @@ def main():
         if workers_count == MAX_W_CNT:
             workers_count = max(tornado.process.cpu_count() - 1, 1) 
         
-        import mp_server
-        
         is_child, data = mp_server.fork_slaves(workers_count)
         
         is_master = not is_child
@@ -1075,31 +1105,40 @@ def main():
             
         if is_master:
             update_fp("M")
-            
-            # :TEMP!!!:
-            for stream in data:
-                mp_server.send_message(stream, b"ggg")
         else:
             idx, stream = data
             update_fp(str(idx))
             
             def on_message(tpl, data):
                 stream_logger.debug("New message: %s, %s", tpl, data)
-                # :TODO!!!:
+                data = json.loads(str(data, "ascii"))
+                
+                cmd = data[0]
+                r_t_b = r_t_b_key(*data[1])
+                chunk_range = chunk_range_dictionary[r_t_b]
+                
+                if cmd == WorkerCommand.START:
+                    # :TRICKY: режим run_workers совместим только 
+                    # с реальным фрагментированием
+                    assert real_hds_chunking
+                    init_cr_start(chunk_range, True)
+                elif cmd == WorkerCommand.NEW_CHUNK:
+                    pass
+                else:
+                    assert False
                 
             def on_stop():
                 log_status("Request to exit from master")
                 
             mp_server.setup_msg_handler(stream, on_message, on_stop)
-            
             log_status("Worker %s is started", idx)
     else:
         is_master = True
         m_s_data  = is_master, []
 
-    #a_g_v = api.global_variables
-    #a_g_v.run_workers       = run_workers
-    #a_g_v.master_slave_data = m_s_data
+    a_g_v = api.global_variables
+    a_g_v.run_workers       = run_workers
+    a_g_v.master_slave_data = m_s_data
         
     global_variables.io_loop = tornado.ioloop.IOLoop.instance()
 
