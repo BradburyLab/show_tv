@@ -267,7 +267,7 @@ class WorkerCommand:
 
 def send_worker_command(cmd, chunk_range, *args):
     if a_global_vars.run_workers and is_master_proc():
-        data = [cmd, chunk_range.r_t_b] + args
+        data = [cmd, chunk_range.r_t_b] + list(args)
         msg  = bytes(json.dumps(data), "ascii")
         
         for stream in a_global_vars.master_slave_data[1]:
@@ -329,62 +329,67 @@ dvr_writer = DVRWriter(
     use_sendfile=use_sendfile,
 )
 
+def add_new_chunk(chunk_range, chunk_ts):
+    send_worker_command(WorkerCommand.NEW_CHUNK, chunk_range, chunk_ts)
+    
+    if chunk_range.end == 0:
+        chunk_range.start = datetime.datetime.utcnow()
+
+    chunk_range.start_times.append(chunk_ts)
+    chunk_range.end += 1
+
+    if may_serve_pl(chunk_range):
+        hdls = chunk_range.on_first_chunk_handlers
+        chunk_range.on_first_chunk_handlers = []
+        for hdl in hdls:
+            hdl()
+
+    max_total = get_cfg_value('max_total', 72) # максимум столько секунд храним
+    max_cnt = int_ceil(float(max_total) / std_chunk_dur)
+    diff = ready_chunks(chunk_range) - max_cnt
+
+    # <DVR writer> --------------------------------------------------------
+    if (
+        is_master_proc() and 
+        bool(dvr_host) and
+        chunk_range.end > 1
+    ):
+        # индекс того чанка, который готов
+        i = chunk_range.end-2
+        # время в секундах от начала создания первого чанка
+        start_seconds = chunk_range.start_times[i-chunk_range.beg]
+        # путь до файла с готовым чанком
+        path_payload = get_chunk_fpath(
+            chunk_range.r_t_b,
+            i
+        )
+        # длина чанка
+        duration = chunk_duration(i, chunk_range)
+        dvr_writer.write(
+            r_t_b=chunk_range.r_t_b,
+            start_utc=chunk_range.start,
+            start_seconds=start_seconds,
+            duration=duration,
+            is_pvr=True,
+            path_payload=path_payload,
+        )
+
+        # :TRICKY: tornado умеет генерить ссылки только для простых случаев
+        #print(global_variables.application.reverse_url("playlist_multibitrate", chunk_range.r_t_b.refname, 1, 1, "f4m"))
+    # ------------------------------------------------------- </DVR writer>
+
+    if diff > 0:
+        old_beg = chunk_range.beg
+        chunk_range.beg += diff
+        del chunk_range.start_times[:diff]
+        if is_master_proc():
+            remove_chunks(range(old_beg, chunk_range.beg), chunk_range)
+
 def start_ffmpeg_chunking(chunk_range):
     chunk_range.start_times = []
 
     def on_new_chunk(chunk_ts):
-        send_worker_command(WorkerCommand.NEW_CHUNK, chunk_range, chunk_ts)
-        
-        if chunk_range.end == 0:
-            chunk_range.start = datetime.datetime.utcnow()
-
-        chunk_range.start_times.append(chunk_ts)
-        chunk_range.end += 1
-
-        if may_serve_pl(chunk_range):
-            hdls = chunk_range.on_first_chunk_handlers
-            chunk_range.on_first_chunk_handlers = []
-            for hdl in hdls:
-                hdl()
-
-        max_total = get_cfg_value('max_total', 72) # максимум столько секунд храним
-        max_cnt = int_ceil(float(max_total) / std_chunk_dur)
-        diff = ready_chunks(chunk_range) - max_cnt
-
-        # <DVR writer> --------------------------------------------------------
-        if (
-            bool(dvr_host) and
-            chunk_range.end > 1
-        ):
-            # индекс того чанка, который готов
-            i = chunk_range.end-2
-            # время в секундах от начала создания первого чанка
-            start_seconds = chunk_range.start_times[i-chunk_range.beg]
-            # путь до файла с готовым чанком
-            path_payload = get_chunk_fpath(
-                chunk_range.r_t_b,
-                i
-            )
-            # длина чанка
-            duration = chunk_duration(i, chunk_range)
-            dvr_writer.write(
-                r_t_b=chunk_range.r_t_b,
-                start_utc=chunk_range.start,
-                start_seconds=start_seconds,
-                duration=duration,
-                is_pvr=True,
-                path_payload=path_payload,
-            )
-
-            # :TRICKY: tornado умеет генерить ссылки только для простых случаев
-            #print(global_variables.application.reverse_url("playlist_multibitrate", chunk_range.r_t_b.refname, 1, 1, "f4m"))
-        # ------------------------------------------------------- </DVR writer>
-
-        if diff > 0:
-            old_beg = chunk_range.beg
-            chunk_range.beg += diff
-            del chunk_range.start_times[:diff]
-            remove_chunks(range(old_beg, chunk_range.beg), chunk_range)
+        add_new_chunk(chunk_range, chunk_ts)
 
     def on_stop_chunking():
         do_stop_chunking(chunk_range)
@@ -1113,8 +1118,8 @@ def main():
                 stream_logger.debug("New message: %s, %s", tpl, data)
                 data = json.loads(str(data, "ascii"))
                 
-                cmd = data[0]
-                r_t_b = r_t_b_key(*data[1])
+                cmd, r_t_b, *args = data
+                r_t_b = r_t_b_key(*r_t_b)
                 chunk_range = chunk_range_dictionary[r_t_b]
                 
                 if cmd == WorkerCommand.START:
@@ -1123,7 +1128,8 @@ def main():
                     assert real_hds_chunking
                     init_cr_start(chunk_range, True)
                 elif cmd == WorkerCommand.NEW_CHUNK:
-                    pass
+                    chunk_ts = args[0]
+                    add_new_chunk(chunk_range, chunk_ts)
                 else:
                     assert False
                 
