@@ -980,41 +980,73 @@ def activate_web(sockets):
             get_playlist_singlebitrate(hdl, asset, bitrate, "abst")
             
         # DVR 
+        def parse_wwz_ts(month, day, startstamp):
+            dt_class = datetime.datetime
+            
+            # вычисление startstamp
+            td = datetime.timedelta(milliseconds=int(startstamp))
+            def make_ts(year):
+                dt = dt_class(year=year, month=int(month), day=int(day)) + td
+                return dt
+            
+            # :TRICKY: с портала время приходит в локальном времени =>
+            # упоротость разработчиков конечно зашкаливает
+            is_local_time = True
+            now = dt_class.now() if is_local_time else dt_class.utcnow()
+            today = now.date()
+            
+            ts1, ts2 = make_ts(today.year), make_ts(today.year-1)
+            # выбираем дату, что ближе к сейчас
+            res_ts = ts1 if abs(now - ts1) < abs(now - ts2) else ts2
+
+            if is_local_time:
+                res_ts = dt_class.utcfromtimestamp(res_ts.timestamp())
+            return res_ts
+
+        wwz_simplified_links = get_cfg_value("wowza-simplified-links", True)
+        www_dvr_link         = get_cfg_value("www-dvr-server", "")
+        
         def wwz_mb_dvr_playlist(hdl, month, day, asset):
             start, duration = hdl.get_argument("start"), hdl.get_argument("duration")
             if not(start and duration):
                 raise_error(400) # Bad Request
-            wwz_mb_playlist(hdl, asset, False, "{0}/{1}".format(start, duration))
+                
+            ts = parse_wwz_ts(month, day, start)
+            yy = ts.year % 100
+            
+            ts_str = "{yy:02d}{ts.month:02d}{ts.day:02d}{ts.hour:02d}{ts.minute:02d}{ts.second:02d}.{int(ts.microsecond/1000):03d}".format_map(s_.EvalFormat())
+            url_prefix = "{0}/{1}".format(ts_str, duration)
+            if wwz_simplified_links:
+                url_prefix = "{0}/{1}/{2}".format(www_dvr_link, asset, url_prefix)
+            wwz_mb_playlist(hdl, asset, False, url_prefix)
             
         def make_wwz_dvr_handler(pattern, get_handler):
             pattern = make_wwz_pattern(r"(?P<month>\d\d)_(?P<day>\d\d)_(?P<asset>[-\w]+)_(?:\d+)p/" + pattern)
             return make_get_handler(pattern, get_handler)
 
-        def make_wwz_dvr_proxy_handler(pattern, get_handler):
-            def handler(hdl, month, day, asset, startstamp, duration, bitrate, **kwargs):
-                # :REFACTOR:
-                bitrate = int(bitrate)
-                typ = Fmt2Typ["abst"]
-                r_t_b = r_t_b_key(asset, typ, bitrate)
-                
-                # вычисление startstamp
-                td = datetime.timedelta(milliseconds=int(startstamp))
-                def make_ts(year):
-                    dt = datetime.datetime(year=year, month=int(month), day=int(day)) + td
-                    return dt.timestamp()
-                
-                now = datetime.datetime.utcnow()
-                today = now.date()
-                
-                ts1, ts2 = make_ts(today.year), make_ts(today.year-1)
-                # выбираем дату, что ближе к сейчас
-                now = now.timestamp()
-                res_startstamp = ts1 if abs(now - ts1) < abs(now - ts2) else ts2
-                
-                ts = int(res_startstamp*1000) # в миллисекундах
-                
-                return get_handler(hdl, r_t_b, ts, duration, **kwargs)
-            return make_wwz_dvr_handler(r"(?P<startstamp>\d+)/(?P<duration>\d+)/" + pattern, handler)
+        # принятый в Bradbury стандарт записи дата-времени
+        timestamp_pattern = r"(?P<startstamp>\d+)\.(?P<milliseconds>\d+)"
+        def parse_bl_ts(startstamp, milliseconds):
+            def rng2int(idx, ln=2):
+                return int(startstamp[0:2])
+            res_ts = datetime.datetime(2000 + rng2int(0), rng2int(2), rng2int(4), 
+                                       rng2int(6),        rng2int(8), rng2int(10)) 
+            return int(res_ts.timestamp()*1000) + int(milliseconds) # в миллисекундах
+
+        if not wwz_simplified_links:
+            def make_wwz_dvr_proxy_handler(pattern, get_handler):
+                def handler(hdl, month, day, asset, startstamp, milliseconds, duration, bitrate, **kwargs):
+                    # :REFACTOR:
+                    bitrate = int(bitrate)
+                    typ = Fmt2Typ["abst"]
+                    r_t_b = r_t_b_key(asset, typ, bitrate)
+                    
+                    #res_ts = parse_wwz_ts(month, day, startstamp)
+                    #ts = int(res_ts.timestamp()*1000)
+                    ts = parse_bl_ts(startstamp, milliseconds)
+                                    
+                    return get_handler(hdl, r_t_b, ts, duration, **kwargs)
+                return make_wwz_dvr_handler(timestamp_pattern + r"/(?P<duration>\d+)/" + pattern, handler)
         
         handlers = [
             # /live/ [ _definst_/ ] smil:discoverychannel_sd/manifest.f4m
@@ -1024,6 +1056,7 @@ def activate_web(sockets):
             # DVR
             # live/ [ _definst_/ ] 11_07_discoverychannel_576p/manifest.f4m?DVR&start=123456789000&duration=60000
             make_wwz_dvr_handler(r"manifest.f4m", wwz_mb_dvr_playlist),
+        ] + [
             # live/ [ _definst_/ ] 11_07_discoverychannel_576p/123456789000/60000/360.abst
             make_wwz_dvr_proxy_handler(r"(?P<bitrate>\d+)\.abst", get_playlist_dvr),
             # live/ [ _definst_/ ] 11_07_discoverychannel_576p/123456789000/60000/360/Seg1-FragN

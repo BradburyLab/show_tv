@@ -6,7 +6,7 @@ dvr-host: null # 127.0.0.1 #
 insert_dvr_magic_number: true
 
 logging_level:
-  tornado.access: INFO
+  tornado.access: INFO # DEBUG # 
   tornado.application: INFO
   stream: INFO # DEBUG # 
   DVRReader: INFO
@@ -32,7 +32,7 @@ stream_by_request: true
 
 log-path: ~/opt/bl/f451/git/log
 
-wowza-links: false 
+#wowza-links: false 
 
 #do_profiling: true
 
