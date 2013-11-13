@@ -961,7 +961,7 @@ def activate_web(sockets):
 
     if wowza_links:
         def make_wwz_pattern(pattern):
-            return r"^/live/(?:_definst_/)" + pattern
+            return r"^/live/(?:_definst_/)?" + pattern
         
         def wwz_mb_playlist(hdl, asset, is_live, url_prefix):
             get_mb_playlist(hdl, asset, "f4m", is_live, url_prefix)
@@ -1014,7 +1014,8 @@ def activate_web(sockets):
             ts = parse_wwz_ts(month, day, start)
             yy = ts.year % 100
             
-            ts_str = "{yy:02d}{ts.month:02d}{ts.day:02d}{ts.hour:02d}{ts.minute:02d}{ts.second:02d}.{int(ts.microsecond/1000):03d}".format_map(s_.EvalFormat())
+            #ts_str = "{yy:02d}{ts.month:02d}{ts.day:02d}{ts.hour:02d}{ts.minute:02d}{ts.second:02d}.{int(ts.microsecond/1000):03d}".format_map(s_.EvalFormat())
+            ts_str = "%(yy)02d%(ts.month)02d%(ts.day)02d%(ts.hour)02d%(ts.minute)02d%(ts.second)02d.%(int(ts.microsecond/1000))03d" % s_.EvalFormat()
             url_prefix = "{0}/{1}".format(ts_str, duration)
             if wwz_simplified_links:
                 url_prefix = "{0}/{1}/{2}".format(www_dvr_link, asset, url_prefix)
@@ -1025,29 +1026,14 @@ def activate_web(sockets):
             return make_get_handler(pattern, get_handler)
 
         # принятый в Bradbury стандарт записи дата-времени
-        timestamp_pattern = r"(?P<startstamp>\d+)\.(?P<milliseconds>\d+)"
+        timestamp_pattern = r"(?P<startstamp>\d{12})\.(?P<milliseconds>\d{3})"
         def parse_bl_ts(startstamp, milliseconds):
             def rng2int(idx, ln=2):
-                return int(startstamp[0:2])
+                return int(startstamp[idx:idx+2])
             res_ts = datetime.datetime(2000 + rng2int(0), rng2int(2), rng2int(4), 
                                        rng2int(6),        rng2int(8), rng2int(10)) 
             return int(res_ts.timestamp()*1000) + int(milliseconds) # в миллисекундах
 
-        if not wwz_simplified_links:
-            def make_wwz_dvr_proxy_handler(pattern, get_handler):
-                def handler(hdl, month, day, asset, startstamp, milliseconds, duration, bitrate, **kwargs):
-                    # :REFACTOR:
-                    bitrate = int(bitrate)
-                    typ = Fmt2Typ["abst"]
-                    r_t_b = r_t_b_key(asset, typ, bitrate)
-                    
-                    #res_ts = parse_wwz_ts(month, day, startstamp)
-                    #ts = int(res_ts.timestamp()*1000)
-                    ts = parse_bl_ts(startstamp, milliseconds)
-                                    
-                    return get_handler(hdl, r_t_b, ts, duration, **kwargs)
-                return make_wwz_dvr_handler(timestamp_pattern + r"/(?P<duration>\d+)/" + pattern, handler)
-        
         handlers = [
             # /live/ [ _definst_/ ] smil:discoverychannel_sd/manifest.f4m
             make_wwz_live_handler(r"manifest.f4m",           wwz_mb_live_playlist),
@@ -1056,12 +1042,48 @@ def activate_web(sockets):
             # DVR
             # live/ [ _definst_/ ] 11_07_discoverychannel_576p/manifest.f4m?DVR&start=123456789000&duration=60000
             make_wwz_dvr_handler(r"manifest.f4m", wwz_mb_dvr_playlist),
-        ] + [
-            # live/ [ _definst_/ ] 11_07_discoverychannel_576p/123456789000/60000/360.abst
-            make_wwz_dvr_proxy_handler(r"(?P<bitrate>\d+)\.abst", get_playlist_dvr),
-            # live/ [ _definst_/ ] 11_07_discoverychannel_576p/123456789000/60000/360/Seg1-FragN
-            make_wwz_dvr_proxy_handler(r"(?P<bitrate>\d+)/Seg1-Frag(?P<frag_num>\d+)", get_hds_dvr),
         ]
+        
+        def run_dvr_handler(get_handler, hdl, asset, startstamp, milliseconds, duration, bitrate, **kwargs):
+            # :REFACTOR:
+            bitrate = int(bitrate)
+            typ = Fmt2Typ["abst"]
+            r_t_b = r_t_b_key(asset, typ, bitrate)
+            
+            #res_ts = parse_wwz_ts(month, day, startstamp)
+            #ts = int(res_ts.timestamp()*1000)
+            ts = parse_bl_ts(startstamp, milliseconds)
+            return get_handler(hdl, r_t_b, ts, duration, **kwargs)
+        
+        if wwz_simplified_links:
+            # /discoverychannel/131113131113.000/60000/360.abst
+            # /discoverychannel/131113131113.000/60000/360/Seg1-FragN
+            def make_dvr_handler(is_pl, get_handler):
+                def handler(hdl, asset, startstamp, milliseconds, duration, bitrate, **kwargs):
+                    return run_dvr_handler(get_handler, hdl, asset, startstamp, milliseconds, duration, bitrate, **kwargs)
+                m_pat = r"^/(?P<asset>[-\w]+)/%s/(?P<duration>\d+)/(?P<bitrate>\d+)" % timestamp_pattern
+                pattern = r"\.abst" if is_pl else r"/Seg1-Frag(?P<frag_num>\d+)"
+                return make_get_handler(m_pat + pattern, handler)
+            
+            def append_dvr_handler(is_pl, get_handler):
+                handlers.append(make_dvr_handler(is_pl, get_handler))
+            
+            append_dvr_handler(True, get_playlist_dvr)
+            if not www_dvr_link:
+                append_dvr_handler(False, get_hds_dvr)
+        else:
+            # :TEMP: удалить, как только станет ясно что wwz_simplified_links работает
+            def make_wwz_dvr_proxy_handler(pattern, get_handler):
+                def handler(hdl, month, day, asset, startstamp, milliseconds, duration, bitrate, **kwargs):
+                    return run_dvr_handler(get_handler, hdl, asset, startstamp, milliseconds, duration, bitrate, **kwargs)
+                return make_wwz_dvr_handler(timestamp_pattern + r"/(?P<duration>\d+)/" + pattern, handler)
+             
+            handlers.extend([
+                # live/ [ _definst_/ ] 11_07_discoverychannel_576p/123456789000/60000/360.abst
+                make_wwz_dvr_proxy_handler(r"(?P<bitrate>\d+)\.abst", get_playlist_dvr),
+                # live/ [ _definst_/ ] 11_07_discoverychannel_576p/123456789000/60000/360/Seg1-FragN
+                make_wwz_dvr_proxy_handler(r"(?P<bitrate>\d+)/Seg1-Frag(?P<frag_num>\d+)", get_hds_dvr),
+            ])
         
         class WowzaStaticHandler(static_cls_handler):
             def get(self, asset, path, include_body=True):
@@ -1187,9 +1209,8 @@ def main():
         is_master = True
         m_s_data  = is_master, []
 
-    a_g_v = api.global_variables
-    a_g_v.run_workers       = run_workers
-    a_g_v.master_slave_data = m_s_data
+    a_global_vars.run_workers       = run_workers
+    a_global_vars.master_slave_data = m_s_data
         
     global_variables.io_loop = tornado.ioloop.IOLoop.instance()
 

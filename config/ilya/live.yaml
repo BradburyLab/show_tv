@@ -36,8 +36,10 @@ log-path: ~/opt/bl/f451/git/log
 
 #do_profiling: true
 
-run-web-workers: true # false # 
+#run-web-workers: false # true # 
 #web-workers-count: -1
+
+#wowza-simplified-links: false
 
 stream-always-lst:
   - pervyj
