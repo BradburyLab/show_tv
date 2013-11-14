@@ -1285,7 +1285,14 @@ def main():
         io_loop.start()
         
         prof.disable()
-        fstats = o_p.join(cfg['path_log'], "stream-{0}.{1}".format(api.utcnow_str(), "py_stats"))
+        if a_global_vars.run_workers:
+            suffix = "M" if is_master else str(a_global_vars.master_slave_data[1][0])
+        else:
+            suffix = ""
+            
+        if suffix:
+            suffix = "[%s]" % suffix
+        fstats = o_p.join(cfg['path_log'], "stream-{0}{1}.{2}".format(api.utcnow_str(), suffix, "py_stats"))
         prof.dump_stats(fstats)        
     else:
         io_loop.start()
