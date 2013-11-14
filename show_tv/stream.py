@@ -1005,18 +1005,15 @@ def activate_web(sockets):
 
         wwz_simplified_links = get_cfg_value("wowza-simplified-links", True)
         www_dvr_link         = get_cfg_value("www-dvr-server", "")
-        
+
         def wwz_mb_dvr_playlist(hdl, month, day, asset):
             start, duration = hdl.get_argument("start"), hdl.get_argument("duration")
             if not(start and duration):
                 raise_error(400) # Bad Request
                 
             ts = parse_wwz_ts(month, day, start)
-            yy = ts.year % 100
             
-            #ts_str = "{yy:02d}{ts.month:02d}{ts.day:02d}{ts.hour:02d}{ts.minute:02d}{ts.second:02d}.{int(ts.microsecond/1000):03d}".format_map(s_.EvalFormat())
-            ts_str = "%(yy)02d%(ts.month)02d%(ts.day)02d%(ts.hour)02d%(ts.minute)02d%(ts.second)02d.%(int(ts.microsecond/1000))03d" % s_.EvalFormat()
-            url_prefix = "{0}/{1}".format(ts_str, duration)
+            url_prefix = "{0}/{1}".format(api.ts2bl_str(ts), duration)
             if wwz_simplified_links:
                 url_prefix = "{0}/{1}/{2}".format(www_dvr_link, asset, url_prefix)
             wwz_mb_playlist(hdl, asset, False, url_prefix)
@@ -1024,15 +1021,6 @@ def activate_web(sockets):
         def make_wwz_dvr_handler(pattern, get_handler):
             pattern = make_wwz_pattern(r"(?P<month>\d\d)_(?P<day>\d\d)_(?P<asset>[-\w]+)_(?:\d+)p/" + pattern)
             return make_get_handler(pattern, get_handler)
-
-        # принятый в Bradbury стандарт записи дата-времени
-        timestamp_pattern = r"(?P<startstamp>\d{12})\.(?P<milliseconds>\d{3})"
-        def parse_bl_ts(startstamp, milliseconds):
-            def rng2int(idx, ln=2):
-                return int(startstamp[idx:idx+2])
-            res_ts = datetime.datetime(2000 + rng2int(0), rng2int(2), rng2int(4), 
-                                       rng2int(6),        rng2int(8), rng2int(10)) 
-            return int(res_ts.timestamp()*1000) + int(milliseconds) # в миллисекундах
 
         handlers = [
             # /live/ [ _definst_/ ] smil:discoverychannel_sd/manifest.f4m
@@ -1052,7 +1040,7 @@ def activate_web(sockets):
             
             #res_ts = parse_wwz_ts(month, day, startstamp)
             #ts = int(res_ts.timestamp()*1000)
-            ts = parse_bl_ts(startstamp, milliseconds)
+            ts = api.parse_bl_ts(startstamp, milliseconds)
             return get_handler(hdl, r_t_b, ts, duration, **kwargs)
         
         if wwz_simplified_links:
@@ -1061,7 +1049,7 @@ def activate_web(sockets):
             def make_dvr_handler(is_pl, get_handler):
                 def handler(hdl, asset, startstamp, milliseconds, duration, bitrate, **kwargs):
                     return run_dvr_handler(get_handler, hdl, asset, startstamp, milliseconds, duration, bitrate, **kwargs)
-                m_pat = r"^/(?P<asset>[-\w]+)/%s/(?P<duration>\d+)/(?P<bitrate>\d+)" % timestamp_pattern
+                m_pat = r"^/(?P<asset>[-\w]+)/%s/(?P<duration>\d+)/(?P<bitrate>\d+)" % api.timestamp_pattern
                 pattern = r"\.abst" if is_pl else r"/Seg1-Frag(?P<frag_num>\d+)"
                 return make_get_handler(m_pat + pattern, handler)
             
@@ -1076,7 +1064,7 @@ def activate_web(sockets):
             def make_wwz_dvr_proxy_handler(pattern, get_handler):
                 def handler(hdl, month, day, asset, startstamp, milliseconds, duration, bitrate, **kwargs):
                     return run_dvr_handler(get_handler, hdl, asset, startstamp, milliseconds, duration, bitrate, **kwargs)
-                return make_wwz_dvr_handler(timestamp_pattern + r"/(?P<duration>\d+)/" + pattern, handler)
+                return make_wwz_dvr_handler(api.timestamp_pattern + r"/(?P<duration>\d+)/" + pattern, handler)
              
             handlers.extend([
                 # live/ [ _definst_/ ] 11_07_discoverychannel_576p/123456789000/60000/360.abst

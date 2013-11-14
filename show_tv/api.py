@@ -90,6 +90,7 @@ def setup_logger(logger, fpath, logging_level):
 
 
 import datetime
+import s_
 
 def utcnow():
     return datetime.datetime.utcnow()
@@ -105,6 +106,24 @@ def ts2str(ts):
 
 def utcnow_str():
     return ts2str(utcnow())
+
+# принятый в Bradbury стандарт записи дата-времени
+timestamp_pattern = r"(?P<startstamp>\d{12})\.(?P<milliseconds>\d{3})"
+def parse_bl_ts(startstamp, milliseconds):
+    def rng2int(idx, ln=2):
+        return int(startstamp[idx:idx+2])
+    res_ts = datetime.datetime(2000 + rng2int(0), rng2int(2), rng2int(4), 
+                               rng2int(6),        rng2int(8), rng2int(10)) 
+    return int(res_ts.timestamp()*1000) + int(milliseconds) # в миллисекундах
+
+def ts2bl_str(ts):
+    yy = ts.year % 100
+    
+    # :TRICKY: новое форматирование имеет сущ. ограничения на имен идентификаторов, поэтому
+    # для сложных вычислений непригодно, :(
+    #ts_str = "{yy:02d}{ts.month:02d}{ts.day:02d}{ts.hour:02d}{ts.minute:02d}{ts.second:02d}.{int(ts.microsecond/1000):03d}".format_map(s_.EvalFormat())
+    ts_str = "%(yy)02d%(ts.month)02d%(ts.day)02d%(ts.hour)02d%(ts.minute)02d%(ts.second)02d.%(int(ts.microsecond/1000))03d" % s_.EvalFormat()
+    return ts_str
 
 global_variables = make_struct(
     run_workers = False,
