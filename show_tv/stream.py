@@ -158,7 +158,8 @@ def run_chunker(src_media_path, typ, chunk_dir, on_new_chunk, on_stop_chunking, 
         ffmpeg_bin += " -v debug"
         chunk_options = "-codec copy -map 0 -f ssegment -segment_time %s" % std_chunk_dur
     else:
-        if stream_by_request:
+        # :TRICKY: ну никак сейчас без перекодирования
+        if get_cfg_value("reencode_hds_sound_to_44kHz", True):
             chunk_options = "-vcodec copy -strict experimental -c:a aac -ac 2 -ar 44100" 
         else:
             # :TRICKY: ради нагрузочного тестирования отключаем перекодирование, пускай даже
