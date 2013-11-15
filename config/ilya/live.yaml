@@ -41,5 +41,7 @@ run-web-workers: false # true #
 
 #wowza-simplified-links: false
 
+www-dvr-server: http://localhost:8910
+
 stream-always-lst:
   - pervyj

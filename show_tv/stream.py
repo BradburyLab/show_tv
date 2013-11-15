@@ -585,6 +585,11 @@ def serve_hds_pl(hdl, chunk_range):
 
     serve_hds_abst(hdl, chunk_range.beg, lst, True)
 
+wwz_simplified_links = get_cfg_value("wowza-simplified-links", True)
+www_dvr_link = get_cfg_value("www-dvr-server", "")
+if not wwz_simplified_links:
+    assert not www_dvr_link
+
 def get_f4m(hdl, refname, is_live, url_prefix=''):
     """ url_prefix доп. url для плейлистов и фрагментов """
     # согласно FlashMediaManifestFileFormatSpecification.pdf
@@ -602,7 +607,7 @@ def get_f4m(hdl, refname, is_live, url_prefix=''):
         if url_prefix:
             # :REFACTOR:
             abst_url = "{0}/{1}".format(url_prefix, abst_url)
-            seg_url  = "{0}/{1}".format(url_prefix, seg_url)
+            seg_url  = "{0}{1}/{2}".format(www_dvr_link, url_prefix, seg_url)
         medias.append(gen_hds.gen_f4m_media(refname, abst_url, item["bitrate"], seg_url))
     f4m = gen_hds.gen_f4m(refname, is_live, "\n".join(medias))
     hdl.write(f4m)
@@ -1004,9 +1009,6 @@ def activate_web(sockets):
                 res_ts = dt_class.utcfromtimestamp(res_ts.timestamp())
             return res_ts
 
-        wwz_simplified_links = get_cfg_value("wowza-simplified-links", True)
-        www_dvr_link         = get_cfg_value("www-dvr-server", "")
-
         def wwz_mb_dvr_playlist(hdl, month, day, asset):
             start, duration = hdl.get_argument("start"), hdl.get_argument("duration")
             if not(start and duration):
@@ -1016,7 +1018,7 @@ def activate_web(sockets):
             
             url_prefix = "{0}/{1}".format(api.ts2bl_str(ts), duration)
             if wwz_simplified_links:
-                url_prefix = "{0}/{1}/{2}".format(www_dvr_link, asset, url_prefix)
+                url_prefix = "/{0}/{1}".format(asset, url_prefix)
             wwz_mb_playlist(hdl, asset, False, url_prefix)
             
         def make_wwz_dvr_handler(pattern, get_handler):
