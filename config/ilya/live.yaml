@@ -1,7 +1,7 @@
 db-path:    ~/opt/bl/f451/tmp/out_dir
 ffmpeg-bin: ~/opt/src/ffmpeg/git/ffmpeg/objs/inst/bin/ffmpeg
 
-dvr-host: null # 127.0.0.1 # 
+dvr-host: 127.0.0.1 # null # 
 # добавлять в начале пакета 0x0000f451 для проверки синхронизации
 insert_dvr_magic_number: true
 
@@ -40,7 +40,7 @@ run-web-workers: false # true #
 
 #wowza-simplified-links: false
 
-www-dvr-server: http://localhost:8910
+#www-dvr-server: http://localhost:8910
 
 stream-always-lst:
   - pervyj

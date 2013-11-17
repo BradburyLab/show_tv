@@ -711,7 +711,7 @@ def force_chunking(r_t):
 
     return res
 
-from app.models.dvr_reader import DVRReader
+from app.models.dvr_reader import DVRReader, call_dvr_cmd
 dvr_reader = DVRReader(
     cfg=cfg,
     host=cfg['live']['dvr-host'],
@@ -720,12 +720,14 @@ dvr_reader = DVRReader(
 
 @gen.engine
 def serve_dvr_chunk(hdl, r_t_b, startstamp, callback=None):
-    payload = yield gen.Task(
+    payload = check_dvr_backend((yield gen.Task(
+        call_dvr_cmd,
+        dvr_reader,
         dvr_reader.load,
         asset=api.asset_name(r_t_b),
         bitrate=r_t_b.bitrate,
         startstamp=startstamp,
-    )
+    )))
     hdl.finish(payload)
 
     if callback:
@@ -772,20 +774,26 @@ def ts2sec(ts):
     # хранилка держит timestamp'ы в миллисекундах
     return ts / 1000.0
 
-@gen.engine
 def load_dvr_pl(r_t_b, startstamp, duration, callback):
-    playlist_data = yield gen.Task(
-        dvr_reader.range,
+    call_dvr_cmd(
+        dvr_reader, 
+        dvr_reader.request_range,
         asset=api.asset_name(r_t_b),
         bitrate=r_t_b.bitrate,
         startstamp=startstamp,
         duration=duration,
+        callback=callback
     )
-    callback(playlist_data)
+
+def check_dvr_backend(res):
+    is_ok, data = res
+    if not is_ok:
+        raise_error(502)
+    return data
 
 @gen.engine
 def get_playlist_dvr(hdl, r_t_b, startstamp, duration):
-    playlist_data = yield gen.Task(load_dvr_pl, r_t_b, startstamp, duration)
+    playlist_data = check_dvr_backend((yield gen.Task(load_dvr_pl, r_t_b, startstamp, duration)))
 
     if playlist_data:
         if r_t_b.typ == StreamType.HLS:
@@ -821,7 +829,7 @@ def get_hds_dvr(hdl, r_t_b, startstamp, duration, frag_num):
     # поддержать вызов load c offset'ом и сама отдаст по HTTP, т.е. лишней
     # работы не будет
 
-    playlist_data = yield gen.Task(load_dvr_pl, r_t_b, startstamp, duration)
+    playlist_data = check_dvr_backend((yield gen.Task(load_dvr_pl, r_t_b, startstamp, duration)))
     if idx > len(playlist_data):
         raise_error(404)
 

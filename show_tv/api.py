@@ -1,3 +1,6 @@
+#!/usr/bin/env python3
+# coding: utf-8
+
 import argparse
 
 # в модуле argparse уже есть "rock solid"-реализация
@@ -133,3 +136,22 @@ def ts2bl_str(ts):
 global_variables = make_struct(
     run_workers = False,
 )
+
+import tornado.iostream
+import socket
+
+def connect(host, port, callback):
+    stream = tornado.iostream.IOStream(socket.socket(socket.AF_INET, socket.SOCK_STREAM))
+
+    def on_connection():
+        assert not stream._connecting
+        # успех => не нужен
+        stream.set_close_callback(None)
+        
+        callback(stream)
+    stream.connect((host, port), on_connection)
+    assert stream._connecting
+    
+    def on_close():
+        callback(None)
+    stream.set_close_callback(on_close)

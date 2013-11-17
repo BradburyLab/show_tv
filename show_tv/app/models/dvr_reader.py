@@ -1,12 +1,23 @@
 # coding: utf-8
-import struct
-
-from io import BytesIO
-
-from tornado import gen
 
 from .dvr_base import DVRBase
+import api
 
+import struct
+from io import BytesIO
+from tornado import gen
+
+@gen.engine
+def call_dvr_cmd(dvr_reader, func, *args, callback, **kwargs):
+    stream = yield gen.Task(api.connect, dvr_reader.host, dvr_reader.port)
+    if stream:
+        def on_result(data):
+            callback((True, data))
+            stream.close()
+        func(*args, stream=stream, callback=on_result, **kwargs)
+    else:
+        dvr_reader.l.debug('[DVRReader] failed to connect')
+        callback((False, None))
 
 class DVRReader(DVRBase):
     commands = {
@@ -18,20 +29,9 @@ class DVRReader(DVRBase):
         super().__init__(cfg, host, port)
 
     @gen.engine
-    def range(self, asset, bitrate, startstamp, duration, callback):
+    def request_range(self, asset, bitrate, startstamp, duration, stream, callback):
         '''
         '''
-        yield gen.Task(self.reconnect)
-        # if not hasattr(self, 'c'):
-        #     yield gen.Task(self.reconnect)
-
-        # if self.c.closed():
-        #     yield gen.Task(self.reconnect)
-
-        if self.c.closed():
-            self.l.debug('[DVRReader] failed to connect')
-            return
-
         self.l.debug('[DVRReader] range start >>>>>>>>>>>>>>>')
 
         if isinstance(asset, str):
@@ -61,13 +61,13 @@ class DVRReader(DVRBase):
             endstamp,
         )
 
-        yield gen.Task(self.c.write, pack)
-        data = yield gen.Task(self.c.read_bytes, 8, streaming_callback=None)
+        yield gen.Task(stream.write, pack)
+        data = yield gen.Task(stream.read_bytes, 8, streaming_callback=None)
         length = struct.unpack('=Q', data)[0]
         self.l.debug('[DVRReader]')
         self.l.debug('[DVRReader] <= length = {0}'.format(length))
 
-        chunks_data = yield gen.Task(self.c.read_bytes, length, streaming_callback=None)
+        chunks_data = yield gen.Task(stream.read_bytes, length, streaming_callback=None)
         self.l.debug('[DVRReader] <= chunks_data_len = {0}'.format(len(chunks_data)))
 
         io = BytesIO(chunks_data)
@@ -96,20 +96,9 @@ class DVRReader(DVRBase):
         callback(playlist)
 
     @gen.engine
-    def load(self, asset, bitrate, startstamp, callback):
+    def load(self, asset, bitrate, startstamp, stream, callback):
         '''
         '''
-        yield gen.Task(self.reconnect)
-        # if not hasattr(self, 'c'):
-        #     yield gen.Task(self.reconnect)
-
-        # if self.c.closed():
-        #     yield gen.Task(self.reconnect)
-
-        if self.c.closed():
-            self.l.debug('[DVRReader] failed to connect')
-            return
-
         self.l.debug('[DVRReader] load start >>>>>>>>>>>>>>>')
 
         if isinstance(asset, str):
@@ -133,13 +122,13 @@ class DVRReader(DVRBase):
             startstamp,
         )
 
-        yield gen.Task(self.c.write, pack)
-        data = yield gen.Task(self.c.read_bytes, 8, streaming_callback=None)
+        yield gen.Task(stream.write, pack)
+        data = yield gen.Task(stream.read_bytes, 8, streaming_callback=None)
         length = struct.unpack('=Q', data)[0]
         self.l.debug('[DVRReader]')
         self.l.debug('[DVRReader] <= length = {0}'.format(length))
 
-        payload = yield gen.Task(self.c.read_bytes, length, streaming_callback=None)
+        payload = yield gen.Task(stream.read_bytes, length, streaming_callback=None)
         self.l.debug('[DVRReader] <= payloadlen = {0}'.format(len(payload)))
 
         self.l.debug('[DVRReader] load finish <<<<<<<<<<<<<<<\n')
