@@ -59,38 +59,47 @@ def log_name2path(logger_name):
         )
     )
 
+def setup_logger(logger, fname, logging_level):
+    api.setup_logger(logger, log_name2path(fname), logging_level)
+
+def setup_custom_logger(name, propagate=True):
+    logger = logging.getLogger(name)
+    logger.propagate = propagate
+
+    logging_level = getattr(logging, cfg['live']['logging_level'][name])
+    setup_logger(logger, name, logging_level)
+
 def setup_logging():
     path_log = args.log
     if path_log is None:
         path_log = get_cfg_value("log-path", '/var/log/451')
     cfg['path_log'] = os.path.expanduser(path_log)
     
+    # логи ошибок и предупреждений
+    root_logger = logging.getLogger()
+    # вначале - в файл
+    setup_logger(root_logger, "errors", logging.WARNING)
+    # затем тоже самое - в Sentry
+    dsn = get_cfg_value("sentry-dsn")
+    if dsn:
+        import sentry
+        sentry.setup(dsn, logging.WARNING)
+    
     # <logging.tornado> -----
-    for name in (
-        'tornado.access',
-        'tornado.application',
-        # 'tornado.general',
-    ):
-        logger = logging.getLogger(name)
-        # tornado_lvl = logging.INFO if get_env_value("verbose_tornado", False) else logging.WARNING
-        logging_level = getattr(logging, cfg['live']['logging_level'][name])
-        logger.setLevel(logging_level)
-
-        api.setup_file_logger(log_name2path(name), logging_level, logger)
+    # tornado.access - это не ошибки, которые надо чинить, поэтому
+    # propagate=False
+    setup_custom_logger('tornado.access', propagate=False)
+    #setup_custom_logger('tornado.application')
+    #setup_custom_logger('tornado.general')
     # ----- </logging.tornado>
+    
     # <logging.application> -----
     for name in (
         'stream',
         'DVRReader',
         'DVRWriter',
     ):
-        logging_level = getattr(logging, cfg['live']['logging_level'][name])
-
-        logger = logging.getLogger(name)
-        logger.propagate = False
-        logger.handlers = []
-
-        api.setup_logger(logger, log_name2path(name), logging_level)
+        setup_custom_logger(name)
     # ----- </logging.application>
 
 # :TRICKY: окружение нужно в самом начале, поэтому -

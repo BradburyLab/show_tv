@@ -69,7 +69,7 @@ def print_log(arg):
 
 def print_stream_event(is_open, address):
     txt = "Stream is opened" if is_open else "Stream is closed"
-    logger.warning("%s: %s", txt, address)
+    logger.info("%s: %s", txt, address)
 
 @gen.engine
 def read_messages(stream, dvr_prefix_format, on_message, callback=None, streaming_callback=None):

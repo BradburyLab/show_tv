@@ -89,14 +89,13 @@ class DVRWriter(DVRBase):
             with open(path_payload, 'rb') as f:
                 self.c.write(f.read())
             
-        log_error = self.l.warning
         if self.c.closed():
-            log_error("Write to DVR failed")
+            self.l.error("Write to DVR failed")
         else:
             queue = self.c.ws_buffer if self.use_sendfile else self.c._write_buffer
             q_len = len(queue)
             if q_len > 200:
-                log_error("Write queue is too big, %s", q_len)
+                self.l.info("Write queue is too big, %s", q_len)
         
         self.l.debug('[DVRWriter] write finish <<<<<<<<<<<<<<<\n')
 

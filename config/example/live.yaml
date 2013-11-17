@@ -25,7 +25,6 @@ is_test: true
 # уровни логирования
 logging_level:
   tornado.access: INFO
-  tornado.application: INFO
   stream: INFO
   DVRReader: INFO
   DVRWriter: INFO

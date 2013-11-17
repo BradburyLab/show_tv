@@ -300,7 +300,7 @@ def start_chunking(chunk_range):
     send_worker_command(WorkerCommand.START, chunk_range)
 
 stream_logger = api.stream_logger
-log_status = stream_logger.warning
+log_status = stream_logger.info
 
 def do_stop_chunking(chunk_range):
     """ Функция, которую нужно выполнить по окончанию вещания (когда закончил
@@ -961,9 +961,28 @@ def activate_web(sockets):
         return pattern, handler_cls, {"path": root_fdir}
     
     wowza_links = get_cfg_value("wowza-links", True)
+
+    handlers = []
+    def extend_hdls(*hdls):
+        handlers.extend(hdls)
+
+    def append_hdl(hdl):
+        handlers.append(hdl)
     
+    def append_sync_hdl(match_pattern, get_handler):
+        append_hdl(make_get_handler(match_pattern, get_handler, False))
+        
+    def force_exception(hdl):
+        1 / 0
+    append_sync_hdl(r"/force_exception", force_exception)
+    
+    # всеразрешающий crossdomain.xml для HDS
+    def get_cd_xml(hdl):
+        hdl.write(gen_hds.least_restrictive_cd_xml())
+    append_sync_hdl(r"/crossdomain.xml", get_cd_xml)
+
     def append_static_handler(pattern, handler_cls):
-        handlers.append(make_static_handler(pattern, db_path, handler_cls))
+        append_hdl(make_static_handler(pattern, db_path, handler_cls))
 
     if wowza_links:
         def make_wwz_pattern(pattern):
@@ -1025,7 +1044,7 @@ def activate_web(sockets):
             pattern = make_wwz_pattern(r"(?P<month>\d\d)_(?P<day>\d\d)_(?P<asset>[-\w]+)_(?:\d+)p/" + pattern)
             return make_get_handler(pattern, get_handler)
 
-        handlers = [
+        extend_hdls(
             # /live/ [ _definst_/ ] smil:discoverychannel_sd/manifest.f4m
             make_wwz_live_handler(r"manifest.f4m",           wwz_mb_live_playlist),
             make_wwz_live_handler(r"(?P<bitrate>\d+)\.abst", wwz_sb_live_playlist),
@@ -1033,7 +1052,7 @@ def activate_web(sockets):
             # DVR
             # live/ [ _definst_/ ] 11_07_discoverychannel_576p/manifest.f4m?DVR&start=123456789000&duration=60000
             make_wwz_dvr_handler(r"manifest.f4m", wwz_mb_dvr_playlist),
-        ]
+        )
         
         def run_dvr_handler(get_handler, hdl, asset, startstamp, milliseconds, duration, bitrate, **kwargs):
             # :REFACTOR:
@@ -1057,7 +1076,7 @@ def activate_web(sockets):
                 return make_get_handler(m_pat + pattern, handler)
             
             def append_dvr_handler(is_pl, get_handler):
-                handlers.append(make_dvr_handler(is_pl, get_handler))
+                append_hdl(make_dvr_handler(is_pl, get_handler))
             
             append_dvr_handler(True, get_playlist_dvr)
             if not www_dvr_link:
@@ -1091,24 +1110,19 @@ def activate_web(sockets):
             r_t_b = r_t_b_key(asset, StreamType.HDS, int(bitrate))
             get_hds_dvr(hdl, r_t_b, startstamp, duration, frag_num)
         
-        handlers = [
+        extend_hdls(
             # :REFACTOR: куча копипасты
             make_stream_handler(r"(?:(?P<startstamp>\d+)/(?P<duration>\d+)/)?smil.(?P<extension>m3u8|f4m)", get_playlist_multibitrate),
             make_stream_handler(r"(?:(?P<startstamp>\d+)/(?P<duration>\d+)/)?(?P<bitrate>\d+)\.(?P<extension>m3u8|abst)", get_playlist_singlebitrate),
             make_stream_handler(r"(?P<startstamp>\d+)/(?P<duration>\d+)/(?P<bitrate>\d+)\.ts", get_hls_dvr),
             make_stream_handler(r"(?P<startstamp>\d+)/(?P<duration>\d+)/(?P<bitrate>\d+)/Seg1-Frag(?P<frag_num>\d+)", on_get_hds_dvr),
-        ]
+        )
     
         #for refname in refname2address_dictionary:
-            #handlers.append(
+            #append_hdl(
                 #make_static_handler(r"/%s/(.*)" % refname, out_fpath(refname)),
             #)
         append_static_handler(r"/(.*)", static_cls_handler)
-
-    # всеразрешающий crossdomain.xml для HDS
-    def get_cd_xml(hdl):
-        hdl.write(gen_hds.least_restrictive_cd_xml())
-    handlers.append(make_get_handler(r"/crossdomain.xml", get_cd_xml, False))
 
     application = tornado.web.Application(handlers)
     #application.listen(port)
@@ -1120,6 +1134,8 @@ def activate_web(sockets):
      
     # не нужно
     #global_variables.application = application
+
+import sentry
 
 def main():
     # :TODO: поменять порт по умолчанию на 8451 (или 9451?), как написано
@@ -1245,6 +1261,10 @@ def main():
     log_status("Starting IOLoop...")
     
     io_loop = global_variables.io_loop
+    def start_io_loop():
+        sentry.update_to_async_client()
+        io_loop.start()
+    
     if get_cfg_value("do_profiling", False):
         #from profile import Profile
         from cProfile import Profile
@@ -1273,7 +1293,7 @@ def main():
         # по аналогии с runcall()
         prof.enable()
         
-        io_loop.start()
+        start_io_loop()
         
         prof.disable()
         if a_global_vars.run_workers:
@@ -1286,7 +1306,8 @@ def main():
         fstats = o_p.join(cfg['path_log'], "stream-{0}{1}.{2}".format(api.utcnow_str(), suffix, "py_stats"))
         prof.dump_stats(fstats)        
     else:
-        io_loop.start()
+        start_io_loop()
     
 if __name__ == "__main__":
-    main()
+    with sentry.catched_exceptions():
+        main()
