@@ -6,11 +6,10 @@ dvr-host: null # 127.0.0.1 #
 insert_dvr_magic_number: true
 
 logging_level:
-  tornado.access: INFO # DEBUG # 
-  tornado.application: INFO
-  stream: INFO # DEBUG # 
-  DVRReader: INFO
-  DVRWriter: INFO
+  #tornado.access: WARNING
+  #stream: INFO
+  #DVRReader: INFO
+  #DVRWriter: INFO
 
 # для тестирования мультикаста "на живую"
 #cast_one_source: udp://239.0.0.5:1234 # 239 - после транскодера

@@ -65,11 +65,9 @@ def setup_logger(logger, fname, logging_level):
 # уровень логирования в errors и Sentry
 root_level = logging.WARNING
 
-def setup_custom_logger(name, propagate=True):
+def setup_custom_logger(name, logging_level, propagate):
     logger = logging.getLogger(name)
     logger.propagate = propagate
-
-    logging_level = getattr(logging, cfg['live']['logging_level'][name])
 
     #setup_logger(logger, name, logging_level)
     logger.setLevel(logging_level)
@@ -79,7 +77,7 @@ def setup_custom_logger(name, propagate=True):
     # поэтому, чтобы не было дублирования в stderr ставим фильтр на каждый
     # custom-StreamHandler
     # :KLUGDE: однако это все равно данный хак не спасет от иерархических
-    # логгеров ( "stream" и "stream.my"
+    # логгеров ("stream" и "stream.web", например)
     ch = api.setup_console_logger(logger, logging_level)
     if propagate:
         def on_record(record):
@@ -103,22 +101,26 @@ def setup_logging():
     if dsn:
         import sentry
         sentry.setup(dsn, root_level)
+
+    # <logging.application> -----
+    ll_def_dct = {
+        "tornado.access": "WARNING", 
+        "stream":    "INFO",
+        "DVRReader": "INFO",
+        "DVRWriter": "INFO",
+    }    
     
-    # <logging.tornado> -----
     # tornado.access - это не ошибки, которые надо чинить, поэтому
     # propagate=False
-    setup_custom_logger('tornado.access', propagate=False)
-    #setup_custom_logger('tornado.application')
-    #setup_custom_logger('tornado.general')
-    # ----- </logging.tornado>
+    do_not_propagate = set(["tornado.access"])
     
-    # <logging.application> -----
-    for name in (
-        'stream',
-        'DVRReader',
-        'DVRWriter',
-    ):
-        setup_custom_logger(name)
+    ll_dct = ll_def_dct.copy()
+    ll_dct2 = cfg['live']['logging_level']
+    if ll_dct2:
+        ll_dct.update(ll_dct2)
+    
+    for name, level in ll_dct.items():
+        setup_custom_logger(name, getattr(logging, level), not(name in do_not_propagate))
     # ----- </logging.application>
 
 # :TRICKY: окружение нужно в самом начале, поэтому -

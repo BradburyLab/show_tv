@@ -22,12 +22,14 @@ is_test: true
 #stream_hls: true
 #stream_hds: true
 
-# уровни логирования
+# уровни логирования:
+# - по умолчанию пишется с указанными настройками
+# - можно добавить свой, с произвольным именем
 logging_level:
-  tornado.access: INFO
-  stream: INFO
-  DVRReader: INFO
-  DVRWriter: INFO
+  #tornado.access: WARNING
+  #stream: INFO
+  #DVRReader: INFO
+  #DVRWriter: INFO
 
 # вещать по ссылкам как у Wowza, например,
 # /live/_definst_/smil:discoverychannel_sd/manifest.f4m ; по умолчанию true
