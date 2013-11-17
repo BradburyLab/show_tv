@@ -585,12 +585,7 @@ def serve_hds_pl(hdl, chunk_range):
 
     serve_hds_abst(hdl, chunk_range.beg, lst, True)
 
-wwz_simplified_links = get_cfg_value("wowza-simplified-links", True)
-www_dvr_link = get_cfg_value("www-dvr-server", "")
-if not wwz_simplified_links:
-    assert not www_dvr_link
-
-def get_f4m(hdl, refname, is_live, url_prefix=''):
+def get_f4m(hdl, refname, is_live, url_prefix=None):
     """ url_prefix доп. url для плейлистов и фрагментов """
     # согласно FlashMediaManifestFileFormatSpecification.pdf
     hdl.set_header("Content-Type", "application/f4m+xml")
@@ -605,9 +600,11 @@ def get_f4m(hdl, refname, is_live, url_prefix=''):
         abst_url = "%s.abst" % rsl
         seg_url  = "%s/" % rsl
         if url_prefix:
-            # :REFACTOR:
-            abst_url = "{0}/{1}".format(url_prefix, abst_url)
-            seg_url  = "{0}{1}/{2}".format(www_dvr_link, url_prefix, seg_url)
+            def join(idx, url):
+                return "{0}/{1}".format(url_prefix[idx], url)
+                
+            abst_url = join(0, abst_url)
+            seg_url  = join(1, seg_url)
         medias.append(gen_hds.gen_f4m_media(refname, abst_url, item["bitrate"], seg_url))
     f4m = gen_hds.gen_f4m(refname, is_live, "\n".join(medias))
     hdl.write(f4m)
@@ -768,7 +765,7 @@ def get_mb_playlist(hdl, asset, extension, is_live, url_prefix):
 
 def get_playlist_multibitrate(hdl, asset, extension, startstamp=None, duration=None):
     check_dvr_pars(startstamp, duration)
-    get_mb_playlist(hdl, asset, extension, startstamp is None, '')
+    get_mb_playlist(hdl, asset, extension, startstamp is None, None)
 
 def ts2sec(ts):
     # хранилка держит timestamp'ы в миллисекундах
@@ -993,6 +990,11 @@ def activate_web(sockets):
         append_hdl(make_static_handler(pattern, db_path, handler_cls))
 
     if wowza_links:
+        wwz_simplified_links = get_cfg_value("wowza-simplified-links", True)
+        www_dvr_link = get_cfg_value("www-dvr-server", "")
+        if not wwz_simplified_links:
+            assert not www_dvr_link
+        
         def make_wwz_pattern(pattern):
             return r"^/live/(?:_definst_/)?" + pattern
         
@@ -1007,7 +1009,7 @@ def activate_web(sockets):
             return make_get_handler(make_wwz_live_pattern(pattern), get_handler)
         
         def wwz_mb_live_playlist(hdl, asset):
-            wwz_mb_playlist(hdl, asset, True, '')
+            wwz_mb_playlist(hdl, asset, True, None)
             
         def wwz_sb_live_playlist(hdl, asset, bitrate):
             get_playlist_singlebitrate(hdl, asset, bitrate, "abst")
@@ -1046,6 +1048,15 @@ def activate_web(sockets):
             url_prefix = "{0}/{1}".format(api.ts2bl_str(ts), duration)
             if wwz_simplified_links:
                 url_prefix = "/{0}/{1}".format(asset, url_prefix)
+                url_prefix = (url_prefix, "/data{0}".format(url_prefix))
+                if www_dvr_link:
+                    def transform(url_prefix):
+                        # :KLUDGE: клиент не умеет ходить по корневым относительным
+                        # ссылкам, поэтому везде приходится писать абсолютные ссылки
+                        return "{0}{1}".format(www_dvr_link, url_prefix)
+                    url_prefix = tuple(transform(url) for url in url_prefix)
+            else:
+                url_prefix = (url_prefix, url_prefix)
             wwz_mb_playlist(hdl, asset, False, url_prefix)
             
         def make_wwz_dvr_handler(pattern, get_handler):
@@ -1079,7 +1090,8 @@ def activate_web(sockets):
             def make_dvr_handler(is_pl, get_handler):
                 def handler(hdl, asset, startstamp, milliseconds, duration, bitrate, **kwargs):
                     return run_dvr_handler(get_handler, hdl, asset, startstamp, milliseconds, duration, bitrate, **kwargs)
-                m_pat = r"^/(?P<asset>[-\w]+)/%s/(?P<duration>\d+)/(?P<bitrate>\d+)" % api.timestamp_pattern
+                content_prefix = r"(?:data/)?" # ""
+                m_pat = r"^/%s(?P<asset>[-\w]+)/%s/(?P<duration>\d+)/(?P<bitrate>\d+)" % (content_prefix, api.timestamp_pattern)
                 pattern = r"\.abst" if is_pl else r"/Seg1-Frag(?P<frag_num>\d+)"
                 return make_get_handler(m_pat + pattern, handler)
             
@@ -1087,8 +1099,7 @@ def activate_web(sockets):
                 append_hdl(make_dvr_handler(is_pl, get_handler))
             
             append_dvr_handler(True, get_playlist_dvr)
-            if not www_dvr_link:
-                append_dvr_handler(False, get_hds_dvr)
+            append_dvr_handler(False, get_hds_dvr)
         else:
             # :TEMP: удалить, как только станет ясно что wwz_simplified_links работает
             def make_wwz_dvr_proxy_handler(pattern, get_handler):
