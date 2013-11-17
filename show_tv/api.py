@@ -66,7 +66,7 @@ import logging
 
 stream_logger = logging.getLogger('stream')
 
-def setup_file_logger(fpath, level, logger):
+def setup_file_handler(logger, fpath, level):
     formatter = Formatter(color=False)
     f = logging.FileHandler(
         fpath,
@@ -75,18 +75,22 @@ def setup_file_logger(fpath, level, logger):
     f.setLevel(level)
     f.setFormatter(formatter)
     logger.addHandler(f)
-
-def setup_console_logger(logger, logging_level):
+    
+def create_console_handler():
     formatter = Formatter(color=True)
     ch = logging.StreamHandler()
-    ch.setLevel(logging_level)
     ch.setFormatter(formatter)
+    return ch
+
+def setup_console_logger(logger, logging_level):
+    ch = create_console_handler()
+    ch.setLevel(logging_level)
     logger.addHandler(ch)
     
 def setup_logger(logger, fpath, logging_level):
     logger.setLevel(logging_level)
     setup_console_logger(logger, logging_level)
-    setup_file_logger(fpath, logging_level, logger)
+    setup_file_handler(logger, fpath, logging_level)
 
 
 import datetime

@@ -28,7 +28,8 @@ def update_to_async_client():
     """ Поменять синхронного клиента на асинхронного - вызывать,
         когда подошли к вызову tornado.ioloop.IOLoop.instance().start() """
     global handler
-    handler.client = make_client(handler.dsn, True)
+    if handler:
+        handler.client = make_client(handler.dsn, True)
 
 import contextlib
 
