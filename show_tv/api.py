@@ -86,6 +86,7 @@ def setup_console_logger(logger, logging_level):
     ch = create_console_handler()
     ch.setLevel(logging_level)
     logger.addHandler(ch)
+    return ch
     
 def setup_logger(logger, fpath, logging_level):
     logger.setLevel(logging_level)

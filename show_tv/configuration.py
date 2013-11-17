@@ -62,12 +62,31 @@ def log_name2path(logger_name):
 def setup_logger(logger, fname, logging_level):
     api.setup_logger(logger, log_name2path(fname), logging_level)
 
+# уровень логирования в errors и Sentry
+root_level = logging.WARNING
+
 def setup_custom_logger(name, propagate=True):
     logger = logging.getLogger(name)
     logger.propagate = propagate
 
     logging_level = getattr(logging, cfg['live']['logging_level'][name])
-    setup_logger(logger, name, logging_level)
+
+    #setup_logger(logger, name, logging_level)
+    logger.setLevel(logging_level)
+    # :TRICKY: с помощью logging невозможно настроить 1 StreamHandler так,
+    # чтобы для некоторых логгеров задействовались свои уровни, а в общем случае
+    # срабатывали >= WARNING (и без использования propagate = False) => 
+    # поэтому, чтобы не было дублирования в stderr ставим фильтр на каждый
+    # custom-StreamHandler
+    # :KLUGDE: однако это все равно данный хак не спасет от иерархических
+    # логгеров ( "stream" и "stream.my"
+    ch = api.setup_console_logger(logger, logging_level)
+    if propagate:
+        def on_record(record):
+            return record.levelno < root_level
+        ch.addFilter(on_record)
+    
+    api.setup_file_handler(logger, log_name2path(name), logging_level)
 
 def setup_logging():
     path_log = args.log
@@ -78,12 +97,12 @@ def setup_logging():
     # логи ошибок и предупреждений
     root_logger = logging.getLogger()
     # вначале - в файл
-    setup_logger(root_logger, "errors", logging.WARNING)
+    setup_logger(root_logger, "errors", root_level)
     # затем тоже самое - в Sentry
     dsn = get_cfg_value("sentry-dsn")
     if dsn:
         import sentry
-        sentry.setup(dsn, logging.WARNING)
+        sentry.setup(dsn, root_level)
     
     # <logging.tornado> -----
     # tornado.access - это не ошибки, которые надо чинить, поэтому
