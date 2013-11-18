@@ -40,7 +40,7 @@ run-web-workers: false # true #
 
 #wowza-simplified-links: false
 
-www-dvr-server: http://localhost:8910 # http://192.168.185.178:8451 # 
+#www-dvr-server: http://localhost:8910 # http://192.168.185.178:8451 # 
 
 stream-always-lst:
   - pervyj

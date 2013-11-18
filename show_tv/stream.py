@@ -990,11 +990,6 @@ def activate_web(sockets):
         append_hdl(make_static_handler(pattern, db_path, handler_cls))
 
     if wowza_links:
-        wwz_simplified_links = get_cfg_value("wowza-simplified-links", True)
-        www_dvr_link = get_cfg_value("www-dvr-server", "")
-        if not wwz_simplified_links:
-            assert not www_dvr_link
-        
         def make_wwz_pattern(pattern):
             return r"^/live/(?:_definst_/)?" + pattern
         
@@ -1038,6 +1033,13 @@ def activate_web(sockets):
                 res_ts = dt_class.utcfromtimestamp(res_ts.timestamp())
             return res_ts
 
+        wwz_simplified_links = get_cfg_value("wowza-simplified-links", True)
+        www_dvr_link    = get_cfg_value("www-dvr-server",    "")
+        www_stream_link = get_cfg_value("www-stream-server", "")
+        if not wwz_simplified_links:
+            assert not www_dvr_link
+            assert not www_stream_link
+
         def wwz_mb_dvr_playlist(hdl, month, day, asset):
             start, duration = hdl.get_argument("start"), hdl.get_argument("duration")
             if not(start and duration):
@@ -1048,15 +1050,17 @@ def activate_web(sockets):
             url_prefix = "{0}/{1}".format(api.ts2bl_str(ts), duration)
             if wwz_simplified_links:
                 url_prefix = "/{0}/{1}".format(asset, url_prefix)
-                url_prefix = (url_prefix, "/data{0}".format(url_prefix))
-                if www_dvr_link:
-                    def transform(url_prefix):
-                        # :KLUDGE: клиент не умеет ходить по корневым относительным
-                        # ссылкам, поэтому везде приходится писать абсолютные ссылки
-                        return "{0}{1}".format(www_dvr_link, url_prefix)
-                    url_prefix = tuple(transform(url) for url in url_prefix)
+                url_prefix = [url_prefix, "/data{0}".format(url_prefix)]
+                # :KLUDGE: клиент не умеет ходить по корневым относительным
+                # ссылкам, поэтому везде приходится писать абсолютные ссылки
+                def transform(idx, prefix):
+                    if prefix:
+                        url_prefix[idx] = "{0}{1}".format(prefix, url_prefix[idx])
+                        
+                transform(0, www_stream_link)
+                transform(1, www_dvr_link)
             else:
-                url_prefix = (url_prefix, url_prefix)
+                url_prefix = [url_prefix, url_prefix]
             wwz_mb_playlist(hdl, asset, False, url_prefix)
             
         def make_wwz_dvr_handler(pattern, get_handler):
