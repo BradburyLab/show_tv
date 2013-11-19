@@ -117,8 +117,11 @@ def utcnow_str():
     return ts2str(utcnow())
 
 def utc_dt2ts(dt):
-    # :TRICKY: .timestamp() работает с учетом локального времени, черт
+    # :TRICKY: .timestamp() вызывает mktime() => изменяет на величину
+    # часового пояса, черт
     #utc_tm = res_ts.timestamp()
+    # :TRICKY: разницы между utctimetuple() и timetuple() нет, если
+    # в dt не установлен tzinfo
     return calendar.timegm(dt.utctimetuple())
 
 # принятый в Bradbury стандарт записи дата-времени
@@ -141,8 +144,8 @@ def ts2bl_str(ts):
     return ts_str
 
 def bl_int_ts2bl_str(ts):
-    ts = datetime.datetime.utcfromtimestamp(ts / 1000.)
-    return ts2bl_str(ts)
+    dt = datetime.datetime.utcfromtimestamp(ts / 1000.)
+    return ts2bl_str(dt)
 
 global_variables = make_struct(
     run_workers = False,
