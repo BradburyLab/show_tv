@@ -133,6 +133,10 @@ def ts2bl_str(ts):
     ts_str = "%(yy)02d%(ts.month)02d%(ts.day)02d%(ts.hour)02d%(ts.minute)02d%(ts.second)02d.%(int(ts.microsecond/1000))03d" % s_.EvalFormat()
     return ts_str
 
+def bl_int_ts2bl_str(ts):
+    ts = datetime.datetime.fromtimestamp(ts / 1000.)
+    return ts2bl_str(ts)
+
 global_variables = make_struct(
     run_workers = False,
 )

@@ -11,9 +11,7 @@ if __name__ == '__main__':
     
     ts = api.parse_bl_ts(m.group("startstamp"), m.group("milliseconds"))
     print(ts)
-    import datetime
-    ts = datetime.datetime.fromtimestamp(ts / 1000)
     
-    date_str2 = api.ts2bl_str(ts)
+    date_str2 = api.bl_int_ts2bl_str(ts)
     assert date_str == date_str2
     

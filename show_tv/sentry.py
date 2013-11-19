@@ -12,7 +12,7 @@ def make_client(dsn, is_async):
 
 handler = None
 
-def setup(dsn, level):
+def setup(dsn, level, propagate_sentry_errors=False):
     client = make_client(dsn, False)
     
     from raven.handlers.logging import SentryHandler
@@ -22,7 +22,10 @@ def setup(dsn, level):
     handler.dsn = dsn
     
     from raven.conf import setup_logging
-    setup_logging(handler)
+    kwargs = {}
+    if propagate_sentry_errors:
+        kwargs["exclude"] = []
+    setup_logging(handler, **kwargs)
     
 def update_to_async_client():
     """ Поменять синхронного клиента на асинхронного - вызывать,
@@ -55,7 +58,8 @@ if __name__ == '__main__':
     dsn = parser.parse_args().dsn
     #print(dsn)
 
-    setup(dsn)
+    import logging
+    setup(dsn, logging.WARNING)
 
     with catched_exceptions():
         import logging

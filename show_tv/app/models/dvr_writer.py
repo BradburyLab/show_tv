@@ -56,7 +56,7 @@ class DVRWriter(DVRBase):
 
         self.l.debug('[DVRWriter] => name = {0}'.format(name))
         self.l.debug('[DVRWriter] => bitrate = {0}'.format(bitrate))
-        self.l.debug('[DVRWriter] => start = {0}'.format(start))
+        self.l.debug('[DVRWriter] => start = {0}'.format(api.bl_int_ts2bl_str(start)))
         self.l.debug('[DVRWriter] => duration = {0}'.format(duration))
         self.l.debug('[DVRWriter] => is_pvr = {0}'.format(is_pvr))
         self.l.debug('[DVRWriter] => payloadlen = {0}'.format(payloadlen))

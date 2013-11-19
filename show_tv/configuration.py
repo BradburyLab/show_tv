@@ -100,7 +100,8 @@ def setup_logging():
     dsn = get_cfg_value("sentry-dsn")
     if dsn:
         import sentry
-        sentry.setup(dsn, root_level)
+        # propagate_sentry_errors=False => хотим видеть ошибки sentry в логе "errors"
+        sentry.setup(dsn, root_level, propagate_sentry_errors=False)
 
     # <logging.application> -----
     ll_def_dct = {

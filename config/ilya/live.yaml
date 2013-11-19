@@ -42,5 +42,5 @@ run-web-workers: false # true #
 
 #www-dvr-server: http://localhost:8910 # http://192.168.185.178:8451 # 
 
-stream-always-lst:
+stream-always-lst: # []
   - pervyj
