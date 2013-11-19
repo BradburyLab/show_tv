@@ -50,7 +50,7 @@ class DVRWriter(DVRBase):
         if isinstance(name, str):
             name = name.encode()
 
-        start = int((start_utc.timestamp() + start_seconds)*1000)
+        start = int((api.utc_dt2ts(start_utc) + start_seconds)*1000)
         duration = int(duration*1000)
         payloadlen = os.stat(path_payload).st_size
 

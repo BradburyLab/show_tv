@@ -116,6 +116,11 @@ def ts2str(ts):
 def utcnow_str():
     return ts2str(utcnow())
 
+def utc_dt2ts(dt):
+    # :TRICKY: .timestamp() работает с учетом локального времени, черт
+    #utc_tm = res_ts.timestamp()
+    return calendar.timegm(dt.utctimetuple())
+
 # принятый в Bradbury стандарт записи дата-времени
 timestamp_pattern = r"(?P<startstamp>\d{12})\.(?P<milliseconds>\d{3})"
 def parse_bl_ts(startstamp, milliseconds):
@@ -123,8 +128,7 @@ def parse_bl_ts(startstamp, milliseconds):
         return int(startstamp[idx:idx+2])
     res_ts = datetime.datetime(2000 + rng2int(0), rng2int(2), rng2int(4), 
                                rng2int(6),        rng2int(8), rng2int(10))
-    #utc_tm = res_ts.timestamp()
-    utc_tm = calendar.timegm(res_ts.utctimetuple())
+    utc_tm = utc_dt2ts(res_ts)
     return int(utc_tm*1000) + int(milliseconds) # в миллисекундах
 
 def ts2bl_str(ts):
