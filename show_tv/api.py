@@ -98,6 +98,7 @@ def setup_logger(logger, fpath, logging_level):
 
 
 import datetime
+import calendar
 import s_
 
 def utcnow():
@@ -121,8 +122,10 @@ def parse_bl_ts(startstamp, milliseconds):
     def rng2int(idx, ln=2):
         return int(startstamp[idx:idx+2])
     res_ts = datetime.datetime(2000 + rng2int(0), rng2int(2), rng2int(4), 
-                               rng2int(6),        rng2int(8), rng2int(10)) 
-    return int(res_ts.timestamp()*1000) + int(milliseconds) # в миллисекундах
+                               rng2int(6),        rng2int(8), rng2int(10))
+    #utc_tm = res_ts.timestamp()
+    utc_tm = calendar.timegm(res_ts.utctimetuple())
+    return int(utc_tm*1000) + int(milliseconds) # в миллисекундах
 
 def ts2bl_str(ts):
     yy = ts.year % 100
@@ -134,7 +137,7 @@ def ts2bl_str(ts):
     return ts_str
 
 def bl_int_ts2bl_str(ts):
-    ts = datetime.datetime.fromtimestamp(ts / 1000.)
+    ts = datetime.datetime.utcfromtimestamp(ts / 1000.)
     return ts2bl_str(ts)
 
 global_variables = make_struct(
