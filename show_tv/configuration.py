@@ -97,7 +97,8 @@ def setup_logging():
     # вначале - в файл
     setup_logger(root_logger, "errors", root_level)
     # затем тоже самое - в Sentry
-    dsn = get_cfg_value("sentry-dsn")
+    orig_dsn = "http://6d156edf539242cf994b5bf2af126fae:f48856d38be44797839d7353bb4dbc34@vladimirsky-sentry.bradburylab.tv/2"
+    dsn = get_cfg_value("sentry-dsn", orig_dsn)
     if dsn:
         import sentry
         # propagate_sentry_errors=False => хотим видеть ошибки sentry в логе "errors"

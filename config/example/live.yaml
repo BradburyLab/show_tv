@@ -52,6 +52,9 @@ logging_level:
 #www-stream-server:
 #www-dvr-server:
 
+# лог ошибок в Sentry, по умолчанию в vladimirsky-sentry.bradburylab.tv
+#sentry-dsn: null
+
 ########################### 
 # Недокументированные опции
 
