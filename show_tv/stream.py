@@ -136,6 +136,8 @@ def may_serve_pl(chunk_range):
 def emulate_live():
     return is_test and get_cfg_value("emulate_live", True)
 
+is_transcoder = get_cfg_value("transcoder-mode", False)
+
 def run_chunker(src_media_path, typ, chunk_dir, on_new_chunk, on_stop_chunking, is_batch=False):
     """ Запустить ffmpeg для фрагментирования файла/исходника src_media_path для
         вещания канала chunk_dir;
@@ -153,19 +155,39 @@ def run_chunker(src_media_path, typ, chunk_dir, on_new_chunk, on_stop_chunking, 
         # эмулируем выдачу видео в реальном времени
         in_opts = "-re " + in_opts
 
+    profiles = {
+        "270": "-s 480x270 -b:v 300k -level 2.1 -b:a 64k",
+        "360": "-s 640x360 -b:v 512k -level 3.0 -b:a 96k",
+        "406": "-s 720x406 -b:v 750k -level 3.1 -b:a 96k",
+        "540": "-s 960x540 -b:v 1400k -level 3.1 -b:a 128k",
+        "720": "-s 1280x720 -b:v 2500k -level 4.0 -b:a 128k",
+        "1080": "-s 1920x1080 -b:v 6000k -level 5.0 -b:a 192k",
+    }
+
+    # 44kHz - для HDS
+    aac_opts = "-strict experimental -c:a aac -ac 2 -ar 44100"
+
+    def make_out_opts(template, copy_opts):
+        if is_transcoder:
+            out_opts = copy_opts
+        else:
+            name = "406"
+            out_opts = "-c:v libx264 -profile:v high %s -r 25 %s" % (aac_opts, profiles[name])
+        return template % (out_opts, std_chunk_dur)
+    
     is_hls = typ == StreamType.HLS
     if is_hls:
         ffmpeg_bin += " -v debug"
-        chunk_options = "-codec copy -map 0 -f ssegment -segment_time %s" % std_chunk_dur
+        chunk_options = make_out_opts("%s -map 0 -f ssegment -segment_time %s", "-codec copy")
     else:
         # :TRICKY: ну никак сейчас без перекодирования
         if get_cfg_value("reencode_hds_sound_to_44kHz", True):
-            chunk_options = "-vcodec copy -strict experimental -c:a aac -ac 2 -ar 44100" 
+            chunk_options = "-vcodec copy %s" % aac_opts 
         else:
             # :TRICKY: ради нагрузочного тестирования отключаем перекодирование, пускай даже
             # звука и не будет
             chunk_options = "-codec copy -bsf:a aac_adtstoasc"
-        chunk_options += " -f hds -hds_time %s" % std_chunk_dur
+        chunk_options = make_out_opts("%s -f hds -hds_time %s", chunk_options)
     cmd = "%(ffmpeg_bin)s %(in_opts)s %(chunk_options)s" % locals()
     if is_test:
         #cmd += " -segment_list %(out_dir)s/playlist.m3u8" % locals()
@@ -177,8 +199,13 @@ def run_chunker(src_media_path, typ, chunk_dir, on_new_chunk, on_stop_chunking, 
 
     Subprocess = tornado.process.Subprocess
     
+    #via_shell = True
+    via_shell = False
+    import shlex
+    cmd = shlex.split(cmd)
+    
     STREAM = Subprocess.STREAM
-    ffmpeg_proc = Subprocess(cmd, stdout=STREAM, stderr=STREAM, shell=True)
+    ffmpeg_proc = Subprocess(cmd, stdout=STREAM, stderr=STREAM, shell=via_shell)
     segment_sign = api.segment_sign
 
     def on_line(line):
@@ -247,7 +274,10 @@ def test_src_fpath(fname):
 def test_media_path(bitrate):
     # return list_bl_tv.make_path("pervyj.ts")+
     # return test_src_fpath("pervyj-720x406.ts")
-    fname = "pervyj-{0}.ts".format(bitrate) if get_cfg_value('multibitrate_testing', True) else "pervyj-720x406.ts"
+    if is_transcoder:
+        fname = "pervyj_in_min.ts"
+    else:
+        fname = "pervyj-{0}.ts".format(bitrate) if get_cfg_value('multibitrate_testing', True) else "pervyj-720x406.ts"
     return test_src_fpath(fname)
 
 global_variables = make_struct(
@@ -411,7 +441,7 @@ def start_ffmpeg_chunking(chunk_range):
         src_media_path = test_media_path(resolution)
     else:
         out_number = streaming_resolutions[resolution]['out_number']
-        src_media_path = refname2address_dictionary[refname][out_number]
+        src_media_path = refname2via_shelltionary[refname][out_number]
 
     chunk_dir = "{0}/{1}".format(refname, resolution)
     chunk_range.pid = run_chunker(src_media_path, typ, chunk_dir, on_new_chunk, on_stop_chunking)
