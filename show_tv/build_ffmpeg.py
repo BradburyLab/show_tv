@@ -21,7 +21,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     
     is_libav = args.is_libav
-    src_dir  = args.src_path
+    src_dir  = os.path.abspath(args.src_path)
     if is_libav:
         add_opts = ""
     else:
@@ -37,8 +37,14 @@ if __name__ == '__main__':
         
     o_p.force_makedirs(bld_dir)
     inst_dir = o_p.join(bld_dir, "inst")
+    
+    enable_x264 = True
+    x264_support = "--enable-libx264 --enable-gpl" if enable_x264 else ""
+    if x264_support:
+        x264_support = " " + x264_support
+    
     debug_opts = "--disable-optimizations --extra-cflags='-O0 -g' " if args.is_debug else ""
     call_cmd("../configure --prefix=%(inst_dir)s %(debug_opts)s--extra-ldflags='-Wl,-rpath=%(inst_dir)s/lib' \
-%(add_opts)s --enable-shared --disable-static" % locals(), bld_dir)
+%(add_opts)s --enable-shared --disable-static%(x264_support)s" % locals(), bld_dir)
     
     call_cmd("make -j 7 V=1 install", bld_dir)

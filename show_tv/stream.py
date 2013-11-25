@@ -26,13 +26,11 @@ from configuration import (
     make_struct,
     get_cfg_value,
     cfg,
+    cast_one_source, is_test
 )
 
 import api
 import mp_server
-
-cast_one_source = get_cfg_value("cast_one_source", None)
-is_test = not cast_one_source and cfg['live']['is_test']
 
 def int_ceil(float_):
     """ Округлить float в больщую сторону """
@@ -169,16 +167,18 @@ def run_chunker(src_media_path, typ, chunk_dir, on_new_chunk, on_stop_chunking, 
 
     def make_out_opts(template, copy_opts):
         if is_transcoder:
-            out_opts = copy_opts
-        else:
             name = "406"
-            out_opts = "-c:v libx264 -profile:v high %s -r 25 %s" % (aac_opts, profiles[name])
+            # :TRICKY: сигнал с головной станции содержит какой-то непонятный третий поток => избавляемся от него
+            out_opts = "-map 0:0 -map 0:1 -c:v libx264 -profile:v high %s -r 25 %s" % (aac_opts, profiles[name])
+        else:
+            out_opts = copy_opts
         return template % (out_opts, std_chunk_dur)
     
     is_hls = typ == StreamType.HLS
     if is_hls:
         ffmpeg_bin += " -v debug"
-        chunk_options = make_out_opts("%s -map 0 -f ssegment -segment_time %s", "-codec copy")
+        # :KLUDGE: разобраться наконец, зачем нужен -map 0 для -f ssegment
+        chunk_options = make_out_opts("%s -f ssegment -segment_time %s", "-map 0 -codec copy")
     else:
         # :TRICKY: ну никак сейчас без перекодирования
         if get_cfg_value("reencode_hds_sound_to_44kHz", True):

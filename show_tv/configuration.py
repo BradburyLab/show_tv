@@ -96,9 +96,10 @@ def setup_logging():
     root_logger = logging.getLogger()
     # вначале - в файл
     setup_logger(root_logger, "errors", root_level)
+    
     # затем тоже самое - в Sentry
     orig_dsn = "http://6d156edf539242cf994b5bf2af126fae:f48856d38be44797839d7353bb4dbc34@vladimirsky-sentry.bradburylab.tv/2"
-    dsn = get_cfg_value("sentry-dsn", orig_dsn)
+    dsn = get_cfg_value("sentry-dsn", None if is_test else orig_dsn)
     if dsn:
         import sentry
         # propagate_sentry_errors=False => хотим видеть ошибки sentry в логе "errors"
@@ -158,6 +159,9 @@ if not "environment" in cfg['live']:
 def get_cfg_value(key, def_value=None):
     #return getattr(environment, key, def_value)
     return cfg['live'].get(key, def_value)
+
+cast_one_source = get_cfg_value("cast_one_source", None)
+is_test = not cast_one_source and cfg['live']['is_test']
 
 # Устанавливаем логи
 setup_logging()
