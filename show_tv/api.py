@@ -41,17 +41,18 @@ DVR_SUFFEXES = {
 def asset_name_rt(refname, typ):
     return "{0}_{1}".format(refname, DVR_SUFFEXES[typ])
 
-def asset_name(r_t_b):
-    return asset_name_rt(r_t_b.refname, r_t_b.typ)
+def asset_name(r_t_p):
+    r_t = r_t_p.r_t
+    return asset_name_rt(r_t.refname, r_t.typ)
 
 DVR_MAGIC_NUMBER = 0x0000f451
 
 # (1) (32s) Имя ассета
-# (2) (L) Битрейт
+# (2) (6s) Профиль
 # (3) (Q) Время начала чанка
 # (4) (L) Длительность чанка в мс (int),
 # (5) (B) Это PVR?
-DVR_PREFIX_FMT = "32sLQLB"
+DVR_PREFIX_FMT = "32s6sQLB"
 
 def make_prefix_format(insert_dvr_magic_number=True, mid_format=''):
     # (0) (L) DVR_MAGIC_NUMBER

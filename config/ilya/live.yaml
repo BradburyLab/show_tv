@@ -7,7 +7,7 @@ insert_dvr_magic_number: true
 
 logging_level:
   #tornado.access: WARNING
-  #stream: INFO
+  #stream: DEBUG # INFO
   #DVRReader: INFO
   #DVRWriter: INFO
 
@@ -31,7 +31,7 @@ stream_by_request: true
 
 log-path: ~/opt/bl/f451/git/log
 
-wowza-links: false 
+#wowza-links: false 
 
 #do_profiling: true
 
@@ -44,5 +44,6 @@ run-web-workers: false # true #
 
 stream-always-lst: # []
   - pervyj
+  - eurosporthd
 
-transcoder-mode: true
+#transcoder-mode: true

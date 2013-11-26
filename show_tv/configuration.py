@@ -135,12 +135,10 @@ cfg = {
     'do_show_version': args.version,
 }
 for cfg_file_name in (
-    'hds',
-    'hls',
     'live',
     'storage',
+    'res',
     'udp-source',
-    'wv-source',
 ):
     with open(
         os.path.join(

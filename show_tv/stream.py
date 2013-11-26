@@ -48,25 +48,12 @@ from collections import namedtuple
 
 # используем namedtuple в качестве ключей, так как
 # они порождены от tuple => имеют адекватное упорядочивание
-RTRClass = namedtuple('RTRClass', ['refname', 'typ', 'bitrate'])
-def r_t_b_key(refname, typ, bitrate):
-    return RTRClass(refname, typ, bitrate)
 
-#ResolutionClass = namedtuple('ResolutionClass', ['bitrate', 'out_number'])
-# out_number - номер в таблице адресов, соответ. качеству канала (1 - наилучший)
-streaming_resolutions = cfg['live'].get("definitions", dict([
-    (360, {"bitrate": 300000,  "out_number": 3}),
-    (576, {"bitrate": 500000,  "out_number": 2}),
-    (720, {"bitrate": 1400000, "out_number": 1}),
-]))
+RTClass = namedtuple('RTClass', ['refname', 'typ'])
+RtPClass = namedtuple('RtPClass', ['r_t', 'profile'])
 
-def r_t_b_iter(iteratable):
-    """ Итератор всех пар=ключей (имя канала, тип вещания, разрешение) по списку
-        каналов iteratable"""
-    for refname in iteratable:
-        for typ in enum_values(StreamType):
-            for resolution, item in streaming_resolutions.items():
-                yield r_t_b_key(refname, typ, resolution)
+def r_t_p_key(refname, typ, profile):
+    return RtPClass(RTClass(refname, typ), profile)
 
 # в Bradbury обычно 3 секунду GOP, а фрагмент:
 # - HLS: 6 секунд (раньше было 9)
@@ -88,20 +75,21 @@ def out_fpath(chunk_dir, *fname):
 
 real_hds_chunking = get_cfg_value("real_hds_chunking", True)
 
-def get_chunk_fpath(r_t_b, i):
-    typ = r_t_b.typ
+def get_chunk_fpath(r_t_p, i):
+    r_t = r_t_p.r_t
+    typ = r_t.typ
     if typ == StreamType.HLS:
         fname = hls_chunk_name(i)
     elif typ == StreamType.HDS:
         fname = hds_chunk_name(i)
-    return out_fpath(r_t_b.refname, str(r_t_b.bitrate), fname)
+    return out_fpath(r_t.refname, r_t_p.profile, fname)
 
 def remove_chunks(rng, cr):
     assert is_master_proc()
     
-    r_t_b = cr.r_t_b
+    r_t_p = cr.r_t_p
     for i in rng:
-        os.unlink(get_chunk_fpath(r_t_b, i))
+        os.unlink(get_chunk_fpath(r_t_p, i))
 
 def ready_chk_end(chunk_range):
     """ Конец списка готовых, полностью записанных фрагментов """
@@ -114,8 +102,8 @@ def written_chunks(chunk_range):
     return range(chunk_range.beg, ready_chk_end(chunk_range))
 
 def is_test_hds(chunk_range):
-    # :REFACTOR: chunk_range.r_t_b.typ
-    return not real_hds_chunking and (chunk_range.r_t_b.typ == StreamType.HDS)
+    # :REFACTOR: chunk_range.r_t_p.typ
+    return not real_hds_chunking and (chunk_range.r_t_p.r_t.typ == StreamType.HDS)
 
 def may_serve_pl(chunk_range):
     """ Можно ли вещать канал = достаточно ли чанков для выдачи в плейлисте """
@@ -271,13 +259,13 @@ def run_chunker(src_media_path, typ, chunk_dir, on_new_chunk, on_stop_chunking, 
 def test_src_fpath(fname):
     return out_fpath(o_p.join('../test_src', fname))
 
-def test_media_path(bitrate):
+def test_media_path(profile):
     # return list_bl_tv.make_path("pervyj.ts")+
     # return test_src_fpath("pervyj-720x406.ts")
     if is_transcoder:
         fname = "pervyj_in_min.ts"
     else:
-        fname = "pervyj-{0}.ts".format(bitrate) if get_cfg_value('multibitrate_testing', True) else "pervyj-720x406.ts"
+        fname = "pervyj-{0}.ts".format(profile) if get_cfg_value('multibitrate_testing', True) else "pervyj-720x406.ts"
     return test_src_fpath(fname)
 
 global_variables = make_struct(
@@ -305,15 +293,19 @@ class WorkerCommand:
 
 def send_worker_command(cmd, chunk_range, *args):
     if a_global_vars.run_workers and is_master_proc():
-        data = [cmd, chunk_range.r_t_b] + list(args)
+        r_t_p = chunk_range.r_t_p
+        # сериализация r_t_p - вручную раскрываем
+        rtp = r_t_p.r_t + (r_t_p.profile,) # r_t_p
+        
+        data = [cmd, rtp] + list(args)
         msg  = bytes(json.dumps(data), "ascii")
         
         for stream in a_global_vars.master_slave_data[1]:
             mp_server.send_message(stream, msg)
 
 def start_chunking(chunk_range):
-    """ Запустить процесс вещания канала chunk_range.r_t_b.refname c типом
-        вещания chunk_range.r_t_b.typ (HLS или HDS) """
+    """ Запустить процесс вещания канала chunk_range.r_t_p.refname c типом
+        вещания chunk_range.r_t_p.typ (HLS или HDS) """
     assert is_master_proc()
     
     if global_variables.stop_streaming:
@@ -349,7 +341,7 @@ def do_stop_chunking(chunk_range):
 
     if global_variables.stop_streaming:
         stop_lst = global_variables.stop_lst
-        stop_lst.discard(chunk_range.r_t_b)
+        stop_lst.discard(chunk_range.r_t_p)
         if not stop_lst:
             global_variables.io_loop.stop()
     else:
@@ -400,13 +392,13 @@ def add_new_chunk(chunk_range, chunk_ts):
         start_seconds = chunk_range.start_times[i-chunk_range.beg]
         # путь до файла с готовым чанком
         path_payload = get_chunk_fpath(
-            chunk_range.r_t_b,
+            chunk_range.r_t_p,
             i
         )
         # длина чанка
         duration = chunk_duration(i, chunk_range)
         dvr_writer.write(
-            r_t_b=chunk_range.r_t_b,
+            r_t_p=chunk_range.r_t_p,
             start_utc=chunk_range.start,
             start_seconds=start_seconds,
             duration=duration,
@@ -415,7 +407,7 @@ def add_new_chunk(chunk_range, chunk_ts):
         )
 
         # :TRICKY: tornado умеет генерить ссылки только для простых случаев
-        #print(global_variables.application.reverse_url("playlist_multibitrate", chunk_range.r_t_b.refname, 1, 1, "f4m"))
+        #print(global_variables.application.reverse_url("playlist_multibitrate", chunk_range.r_t_p.refname, 1, 1, "f4m"))
     # ------------------------------------------------------- </DVR writer>
 
     if diff > 0:
@@ -434,16 +426,15 @@ def start_ffmpeg_chunking(chunk_range):
     def on_stop_chunking():
         do_stop_chunking(chunk_range)
 
-    refname, typ, resolution = chunk_range.r_t_b
+    (refname, typ), profile = chunk_range.r_t_p
     if cast_one_source:
         src_media_path = cast_one_source
     elif is_test:
-        src_media_path = test_media_path(resolution)
+        src_media_path = test_media_path(profile)
     else:
-        out_number = streaming_resolutions[resolution]['out_number']
-        src_media_path = refname2address_dictionary[refname][out_number]
+        src_media_path = refname2address_dictionary[refname]["res-src"][profile]
 
-    chunk_dir = "{0}/{1}".format(refname, resolution)
+    chunk_dir = "{0}/{1}".format(refname, profile)
     chunk_range.pid = run_chunker(src_media_path, typ, chunk_dir, on_new_chunk, on_stop_chunking)
 
 def chunk_duration(i, chunk_range):
@@ -465,7 +456,7 @@ def serve_hls_pl(hdl, chunk_range):
     # такое возможно, если путь оканчивается на .m3u8 , но в реальности
     # Safari/IPad такое не принимает (да и Firefox/Linux тоже)
     hdl.set_header("Content-Type", "application/vnd.apple.mpegurl")
-    bitrate = chunk_range.r_t_b.bitrate
+    profile = chunk_range.r_t_p.profile
 
     write = hdl.write
     # EXT-X-TARGETDURATION - должен быть, и это
@@ -481,7 +472,7 @@ def serve_hls_pl(hdl, chunk_range):
         # используем %f (6 знаков по умолчанию) вместо %s, чтобы на
         # '%s' % 0.0000001 не получать '1e-07'
         chunk_lst.append("""#EXTINF:{dur:f},
-{bitrate}/{name}
+{profile}/{name}
 """.format(**locals()))
 
     # по спеке это должно быть целое число, иначе не работает (IPad)
@@ -546,7 +537,7 @@ def start_test_hds_chunking(chunk_range):
         done_chunk_idx = chunk_range.end-1
         fname = hds_chunk_name(done_chunk_idx)
         src_fname = o_p.join(test_hds.get_frg_test_dir(), fname)
-        dst_fname = get_chunk_fpath(chunk_range.r_t_b, done_chunk_idx)
+        dst_fname = get_chunk_fpath(chunk_range.r_t_p, done_chunk_idx)
         import shutil
         ensure_directory(dst_fname)
         shutil.copyfile(src_fname, dst_fname)
@@ -615,6 +606,15 @@ def serve_hds_pl(hdl, chunk_range):
 
     serve_hds_abst(hdl, chunk_range.beg, lst, True)
 
+def get_profiles(refname, typ):
+    profiles = chunk_range_dictionary.get(RTClass(refname, typ))
+    if not profiles:
+        raise_error(404)
+    return profiles
+
+def profile2res(profile):
+    return cfg['res'][profile]
+
 def get_f4m(hdl, refname, is_live, url_prefix=None):
     """ url_prefix доп. url для плейлистов и фрагментов """
     # согласно FlashMediaManifestFileFormatSpecification.pdf
@@ -622,79 +622,58 @@ def get_f4m(hdl, refname, is_live, url_prefix=None):
     # :TRICKY: не нужно вроде
     disable_caching(hdl)
 
-    #s_b = str(720) # брать из streaming_resolutions.keys()
-    #url = s_b + "/"
-    #f4m = gen_hds.gen_single_bitrate_f4m(refname, s_b + ".abst", is_live, url)
+    profiles = get_profiles(refname, StreamType.HDS)
     medias = []
-    for rsl, item in streaming_resolutions.items():
-        abst_url = "%s.abst" % rsl
-        seg_url  = "%s/" % rsl
+    for profile in profiles:
+        abst_url = "%s.abst" % profile
+        seg_url  = "%s/" % profile
         if url_prefix:
             def join(idx, url):
                 return "{0}/{1}".format(url_prefix[idx], url)
                 
             abst_url = join(0, abst_url)
             seg_url  = join(1, seg_url)
-        medias.append(gen_hds.gen_f4m_media(refname, abst_url, item["bitrate"], seg_url))
+        medias.append(gen_hds.gen_f4m_media(refname, abst_url, profile2res(profile)["bitrate"], seg_url))
     f4m = gen_hds.gen_f4m(refname, is_live, "\n".join(medias))
     hdl.write(f4m)
 
-def get_channels():
-    bitrate_out_number = dict([
-        (
-            data['bitrate'],
-            data['out_number'],
-        )
-        for resolution, data in streaming_resolutions.items()
-    ])
-    names_dct = dict([
-        (
-            data['metadata']['channel_name_ru'],
-            refname,
-        )
-        for refname, data in cfg['udp-source'].items()
-    ])
-    rn_dct = dict([
-        (
-            refname,
-            dict([
-                (
-                    out_number,
-                    data[bitrate],
-                )
-                for (bitrate, out_number)
-                in bitrate_out_number.items()
-            ])
-        )
-        for refname, data in cfg['udp-source'].items()
-    ])
-    return rn_dct, names_dct
-
-
 # словарь "имя канала" => адрес входящий адрес вещания
-refname2address_dictionary = get_channels()[0]
+refname2address_dictionary = cfg['udp-source']
 
 # словарь (имя канала, тип вещания, разрешение) => chunk_range
 chunk_range_dictionary = {}
-def init_crd():
+
+def make_c_r(c_r_key):
     # :TODO: создавать по требованию (ленивая инициализация)
-    for r_t_b in r_t_b_iter(refname2address_dictionary):
-        chunk_range_dictionary[r_t_b] = make_struct(
-            is_started=False,
-            on_first_chunk_handlers=[],
-            r_t_b=r_t_b,
-            stop_signal=False,
-        )
+    return make_struct(
+        is_started=False,
+        on_first_chunk_handlers=[],
+        r_t_p=c_r_key,
+        stop_signal=False,
+    )
+
+def get_c_r(r_t_p):
+    c_r = None
+    
+    dct = chunk_range_dictionary.get(r_t_p.r_t)
+    if dct:
+        c_r = dct[r_t_p.profile]
+
+    return c_r
+
+import collections
+def init_crd():
+    for refname, cfg in refname2address_dictionary.items():
+        # :TODO: остальные варианты деления на чанки реализовать
+        res_src = cfg.get('res-src')
+        if res_src:
+            for typ in enum_values(StreamType):
+                r_t = RTClass(refname, typ)
+                dct = chunk_range_dictionary[r_t] = collections.OrderedDict() # {}
+            
+                for profile in res_src:
+                    dct[profile] = make_c_r(RtPClass(r_t, profile))
 init_crd()
-
-RTClass = namedtuple('RTClass', ['refname', 'typ'])
-
-def r_t_iter(iteratable):
-    """ Итератор всех пар=ключей (имя канала, тип вещания) по списку
-        каналов iteratable"""
-    for refname in iteratable:
-        for typ in enum_values(StreamType):
-            yield RTClass(refname, typ)
 
 def raise_error(status):
     raise tornado.web.HTTPError(status)
@@ -710,17 +689,6 @@ def make_get_handler(match_pattern, get_handler, is_async=True, name=None):
     Handler.get = tornado.web.asynchronous(get_handler) if is_async else get_handler
     return tornado.web.url(match_pattern, Handler, name=name)
 
-def get_cr(r_t_b):
-    chunk_range = chunk_range_dictionary.get(r_t_b)
-    if not chunk_range:
-        raise_error(404)
-    return chunk_range
-
-def for_all_resolutions(r_t):
-    for rls in streaming_resolutions:
-        r_t_b = r_t_b_key(r_t.refname, r_t.typ, rls)
-        yield chunk_range_dictionary[r_t_b]
-
 def force_chunking(r_t):
     """ Начать вещание канала по требованию """
 
@@ -728,7 +696,7 @@ def force_chunking(r_t):
     res = True
     
     is_master = is_master_proc()
-    for c_r in for_all_resolutions(r_t):
+    for c_r in chunk_range_dictionary[r_t].values():
         if is_master and not c_r.is_started:
             start_chunking(c_r)
 
@@ -746,13 +714,13 @@ dvr_reader = DVRReader(
 )
 
 @gen.engine
-def serve_dvr_chunk(hdl, r_t_b, startstamp, callback=None):
+def serve_dvr_chunk(hdl, r_t_p, startstamp, callback=None):
     payload = check_dvr_backend((yield gen.Task(
         call_dvr_cmd,
         dvr_reader,
         dvr_reader.load,
-        asset=api.asset_name(r_t_b),
-        bitrate=r_t_b.bitrate,
+        asset=api.asset_name(r_t_p),
+        profile=r_t_p.profile,
         startstamp=startstamp,
     )))
     hdl.finish(payload)
@@ -760,10 +728,10 @@ def serve_dvr_chunk(hdl, r_t_b, startstamp, callback=None):
     if callback:
         callback(None)
 
-def get_hls_dvr(hdl, asset, startstamp, duration, bitrate):
-    r_t_b = r_t_b_key(asset, StreamType.HLS, int(bitrate))
+def get_hls_dvr(hdl, asset, startstamp, duration, profile):
+    r_t_p = r_t_p_key(asset, StreamType.HLS, profile)
     startstamp = int(startstamp)
-    serve_dvr_chunk(hdl, r_t_b, startstamp)
+    serve_dvr_chunk(hdl, r_t_p, startstamp)
 
 from tornado import template
 
@@ -781,9 +749,9 @@ def get_mb_playlist(hdl, asset, extension, is_live, url_prefix):
             'app',
             'templates',
         ))
+        profile_bandwitdhs = [[profile, profile2res(profile)["bandwidth"]] for profile in get_profiles(asset, StreamType.HLS)]
         playlist = loader.load('multibitrate/playlist.m3u8').generate(
-            asset=asset,
-            resolutions=streaming_resolutions,
+            profile_bandwitdhs=profile_bandwitdhs,
         )
         hdl.write(playlist)
     elif typ == StreamType.HDS:
@@ -801,12 +769,12 @@ def ts2sec(ts):
     # хранилка держит timestamp'ы в миллисекундах
     return ts / 1000.0
 
-def load_dvr_pl(r_t_b, startstamp, duration, callback):
+def load_dvr_pl(r_t_p, startstamp, duration, callback):
     call_dvr_cmd(
         dvr_reader, 
         dvr_reader.request_range,
-        asset=api.asset_name(r_t_b),
-        bitrate=r_t_b.bitrate,
+        asset=api.asset_name(r_t_p),
+        profile=r_t_p.profile,
         startstamp=startstamp,
         duration=duration,
         callback=callback
@@ -819,23 +787,24 @@ def check_dvr_backend(res):
     return data
 
 @gen.engine
-def get_playlist_dvr(hdl, r_t_b, startstamp, duration):
-    playlist_data = check_dvr_backend((yield gen.Task(load_dvr_pl, r_t_b, startstamp, duration)))
+def get_playlist_dvr(hdl, r_t_p, startstamp, duration):
+    playlist_data = check_dvr_backend((yield gen.Task(load_dvr_pl, r_t_p, startstamp, duration)))
 
     if playlist_data:
-        if r_t_b.typ == StreamType.HLS:
+        r_t = r_t_p.r_t
+        if r_t.typ == StreamType.HLS:
             hdl.set_header('Content-Type', 'application/vnd.apple.mpegurl')
             playlist = dvr_reader.generate_playlist(
                 host=hdl.request.host,
-                asset=r_t_b.refname,
+                asset=r_t.refname,
                 startstamps_durations=[
                     (r['startstamp'], ts2sec(r['duration']))
                     for r in playlist_data
                 ],
-                bitrate=r_t_b.bitrate,
+                profile=r_t_p.profile,
             )
             hdl.finish(playlist)
-        elif r_t_b.typ == StreamType.HDS:
+        elif r_t.typ == StreamType.HDS:
             first_ts = playlist_data[0]['startstamp']
             frg_tbl = [[ts2sec(r['startstamp']-first_ts), ts2sec(r['duration'])] for r in playlist_data]
             serve_hds_abst(hdl, 0, frg_tbl, False)
@@ -845,7 +814,7 @@ def get_playlist_dvr(hdl, r_t_b, startstamp, duration):
         raise_error(404)
 
 @gen.engine
-def get_hds_dvr(hdl, r_t_b, startstamp, duration, frag_num):
+def get_hds_dvr(hdl, r_t_p, startstamp, duration, frag_num):
     frag_num = int(frag_num)
     if frag_num < 1:
         raise_error(404)
@@ -856,12 +825,12 @@ def get_hds_dvr(hdl, r_t_b, startstamp, duration, frag_num):
     # поддержать вызов load c offset'ом и сама отдаст по HTTP, т.е. лишней
     # работы не будет
 
-    playlist_data = check_dvr_backend((yield gen.Task(load_dvr_pl, r_t_b, startstamp, duration)))
+    playlist_data = check_dvr_backend((yield gen.Task(load_dvr_pl, r_t_p, startstamp, duration)))
     if idx > len(playlist_data):
         raise_error(404)
 
     startstamp = playlist_data[idx]['startstamp']
-    serve_dvr_chunk(hdl, r_t_b, startstamp)
+    serve_dvr_chunk(hdl, r_t_p, startstamp)
 
 Fmt2Typ = {
     "m3u8": StreamType.HLS,
@@ -869,21 +838,22 @@ Fmt2Typ = {
     "f4m":  StreamType.HDS,
 }
 
-def get_playlist_singlebitrate(hdl, asset, bitrate, extension, startstamp=None, duration=None):
+def get_playlist_singlebitrate(hdl, asset, profile, extension, startstamp=None, duration=None):
     """ Обработчик выдачи плейлистов playlist.m3u8 и manifest.f4m """
-    bitrate = int(bitrate)
 
     check_dvr_pars(startstamp, duration)
 
     typ = Fmt2Typ[extension]
-    r_t_b = r_t_b_key(asset, typ, bitrate)
+    r_t_p = r_t_p_key(asset, typ, profile)
     if startstamp is not None and duration is not None:
-        get_playlist_dvr(hdl, r_t_b, startstamp, duration)
+        get_playlist_dvr(hdl, r_t_p, startstamp, duration)
         return
 
-    chunk_range = get_cr(r_t_b)
+    chunk_range = get_c_r(r_t_p)
+    if not chunk_range:
+        raise_error(404)
 
-    r_t = RTClass(asset, typ)
+    r_t = r_t_p.r_t
     if not force_chunking(r_t):
         # например, из-за сигнала остановить сервер
         raise_error(503)
@@ -924,6 +894,9 @@ def try_kill_cr(cr):
         kill_cr(cr)
     return is_started
 
+def iterate_cr(profiles):
+    return profiles.values()
+
 def on_signal(_signum, _ignored_):
     """ Прекратить работу сервера show_tv по Ctrl+C """
     
@@ -934,9 +907,10 @@ def on_signal(_signum, _ignored_):
         global_variables.stop_streaming = True
     
         stop_lst = []
-        for cr in chunk_range_dictionary.values():
-            if try_kill_cr(cr):
-                stop_lst.append(cr.r_t_b)
+        for profiles in chunk_range_dictionary.values():
+            for cr in iterate_cr(profiles):
+                if try_kill_cr(cr):
+                    stop_lst.append(cr.r_t_p)
     
         if stop_lst:
             global_variables.stop_lst = set(stop_lst)
@@ -961,20 +935,16 @@ if stream_by_request:
     def stop_inactives():
         """ Прекратить вещание каналов, которые никто не смотрит в течении STOP_PERIOD=10 минут """
         
-        #for r_t_b, cr in chunk_range_dictionary.items():
-            #if cr.is_started and r_t_b not in activity_set and r_t_b.refname not in stream_always_lst:
-                #print("Stopping inactive:", r_t_b)
-                #kill_cr(cr)
-        for r_t in r_t_iter(refname2address_dictionary):
+        for r_t, profiles in chunk_range_dictionary.items():
             is_started = False
-            for c_r in for_all_resolutions(r_t):
+            for c_r in iterate_cr(profiles):
                 if c_r.is_started:
                     is_started = True
                     break
             
             if is_started and r_t not in activity_set and r_t.refname not in stream_always_lst:
                 log_status("Stopping inactive: %s", r_t)
-                for c_r in for_all_resolutions(r_t):
+                for c_r in iterate_cr(profiles):
                     try_kill_cr(c_r)
                 
         activity_set.clear()
@@ -1036,8 +1006,8 @@ def activate_web(sockets):
         def wwz_mb_live_playlist(hdl, asset):
             wwz_mb_playlist(hdl, asset, True, None)
             
-        def wwz_sb_live_playlist(hdl, asset, bitrate):
-            get_playlist_singlebitrate(hdl, asset, bitrate, "abst")
+        def wwz_sb_live_playlist(hdl, asset, profile):
+            get_playlist_singlebitrate(hdl, asset, profile, "abst")
             
         # DVR 
         def parse_wwz_ts(month, day, startstamp):
@@ -1100,32 +1070,31 @@ def activate_web(sockets):
         extend_hdls(
             # /live/ [ _definst_/ ] smil:discoverychannel_sd/manifest.f4m
             make_wwz_live_handler(r"manifest.f4m",           wwz_mb_live_playlist),
-            make_wwz_live_handler(r"(?P<bitrate>\d+)\.abst", wwz_sb_live_playlist),
+            make_wwz_live_handler(r"(?P<profile>\w+)\.abst", wwz_sb_live_playlist),
             
             # DVR
             # live/ [ _definst_/ ] 11_07_discoverychannel_576p/manifest.f4m?DVR&start=123456789000&duration=60000
             make_wwz_dvr_handler(r"manifest.f4m", wwz_mb_dvr_playlist),
         )
         
-        def run_dvr_handler(get_handler, hdl, asset, startstamp, milliseconds, duration, bitrate, **kwargs):
+        def run_dvr_handler(get_handler, hdl, asset, startstamp, milliseconds, duration, profile, **kwargs):
             # :REFACTOR:
-            bitrate = int(bitrate)
             typ = Fmt2Typ["abst"]
-            r_t_b = r_t_b_key(asset, typ, bitrate)
+            r_t_p = r_t_p_key(asset, typ, profile)
             
             #res_ts = parse_wwz_ts(month, day, startstamp)
             #ts = int(res_ts.timestamp()*1000)
             ts = api.parse_bl_ts(startstamp, milliseconds)
-            return get_handler(hdl, r_t_b, ts, duration, **kwargs)
+            return get_handler(hdl, r_t_p, ts, duration, **kwargs)
         
         if wwz_simplified_links:
             # /discoverychannel/131113131113.000/60000/360.abst
             # /discoverychannel/131113131113.000/60000/360/Seg1-FragN
             def make_dvr_handler(is_pl, get_handler):
-                def handler(hdl, asset, startstamp, milliseconds, duration, bitrate, **kwargs):
-                    return run_dvr_handler(get_handler, hdl, asset, startstamp, milliseconds, duration, bitrate, **kwargs)
+                def handler(hdl, asset, startstamp, milliseconds, duration, profile, **kwargs):
+                    return run_dvr_handler(get_handler, hdl, asset, startstamp, milliseconds, duration, profile, **kwargs)
                 content_prefix = r"(?:data/)?" # ""
-                m_pat = r"^/%s(?P<asset>[-\w]+)/%s/(?P<duration>\d+)/(?P<bitrate>\d+)" % (content_prefix, api.timestamp_pattern)
+                m_pat = r"^/%s(?P<asset>[-\w]+)/%s/(?P<duration>\d+)/(?P<profile>\w+)" % (content_prefix, api.timestamp_pattern)
                 pattern = r"\.abst" if is_pl else r"/Seg1-Frag(?P<frag_num>\d+)"
                 return make_get_handler(m_pat + pattern, handler)
             
@@ -1137,15 +1106,15 @@ def activate_web(sockets):
         else:
             # :TEMP: удалить, как только станет ясно что wwz_simplified_links работает
             def make_wwz_dvr_proxy_handler(pattern, get_handler):
-                def handler(hdl, month, day, asset, startstamp, milliseconds, duration, bitrate, **kwargs):
-                    return run_dvr_handler(get_handler, hdl, asset, startstamp, milliseconds, duration, bitrate, **kwargs)
+                def handler(hdl, month, day, asset, startstamp, milliseconds, duration, profile, **kwargs):
+                    return run_dvr_handler(get_handler, hdl, asset, startstamp, milliseconds, duration, profile, **kwargs)
                 return make_wwz_dvr_handler(api.timestamp_pattern + r"/(?P<duration>\d+)/" + pattern, handler)
              
             handlers.extend([
                 # live/ [ _definst_/ ] 11_07_discoverychannel_576p/123456789000/60000/360.abst
-                make_wwz_dvr_proxy_handler(r"(?P<bitrate>\d+)\.abst", get_playlist_dvr),
+                make_wwz_dvr_proxy_handler(r"(?P<profile>\w+)\.abst", get_playlist_dvr),
                 # live/ [ _definst_/ ] 11_07_discoverychannel_576p/123456789000/60000/360/Seg1-FragN
-                make_wwz_dvr_proxy_handler(r"(?P<bitrate>\d+)/Seg1-Frag(?P<frag_num>\d+)", get_hds_dvr),
+                make_wwz_dvr_proxy_handler(r"(?P<profile>\w+)/Seg1-Frag(?P<frag_num>\d+)", get_hds_dvr),
             ])
         
         class WowzaStaticHandler(static_cls_handler):
@@ -1159,22 +1128,18 @@ def activate_web(sockets):
         def make_stream_handler(match_pattern, get_handler):
             return make_get_handler("^/(?P<asset>[-\w]+)/" + match_pattern, get_handler)
         
-        def on_get_hds_dvr(hdl, asset, startstamp, duration, bitrate, frag_num):
-            r_t_b = r_t_b_key(asset, StreamType.HDS, int(bitrate))
-            get_hds_dvr(hdl, r_t_b, startstamp, duration, frag_num)
+        def on_get_hds_dvr(hdl, asset, startstamp, duration, profile, frag_num):
+            r_t_p = r_t_p_key(asset, StreamType.HDS, profile)
+            get_hds_dvr(hdl, r_t_p, startstamp, duration, frag_num)
         
         extend_hdls(
             # :REFACTOR: куча копипасты
             make_stream_handler(r"(?:(?P<startstamp>\d+)/(?P<duration>\d+)/)?smil.(?P<extension>m3u8|f4m)", get_playlist_multibitrate),
-            make_stream_handler(r"(?:(?P<startstamp>\d+)/(?P<duration>\d+)/)?(?P<bitrate>\d+)\.(?P<extension>m3u8|abst)", get_playlist_singlebitrate),
-            make_stream_handler(r"(?P<startstamp>\d+)/(?P<duration>\d+)/(?P<bitrate>\d+)\.ts", get_hls_dvr),
-            make_stream_handler(r"(?P<startstamp>\d+)/(?P<duration>\d+)/(?P<bitrate>\d+)/Seg1-Frag(?P<frag_num>\d+)", on_get_hds_dvr),
+            make_stream_handler(r"(?:(?P<startstamp>\d+)/(?P<duration>\d+)/)?(?P<profile>\w+)\.(?P<extension>m3u8|abst)", get_playlist_singlebitrate),
+            make_stream_handler(r"(?P<startstamp>\d+)/(?P<duration>\d+)/(?P<profile>\w+)\.ts", get_hls_dvr),
+            make_stream_handler(r"(?P<startstamp>\d+)/(?P<duration>\d+)/(?P<profile>\w+)/Seg1-Frag(?P<frag_num>\d+)", on_get_hds_dvr),
         )
     
-        #for refname in refname2address_dictionary:
-            #append_hdl(
-                #make_static_handler(r"/%s/(.*)" % refname, out_fpath(refname)),
-            #)
         append_static_handler(r"/(.*)", static_cls_handler)
 
     application = tornado.web.Application(handlers)
@@ -1243,9 +1208,9 @@ def main():
                 stream_logger.debug("New message: %s, %s", tpl, data)
                 data = json.loads(str(data, "ascii"))
                 
-                cmd, r_t_b, *args = data
-                r_t_b = r_t_b_key(*r_t_b)
-                chunk_range = chunk_range_dictionary[r_t_b]
+                cmd, r_t_p, *args = data
+                r_t_p = r_t_p_key(*r_t_p)
+                chunk_range = get_c_r(r_t_p)
                 
                 if cmd == WorkerCommand.START:
                     # :TRICKY: режим run_workers совместим только 

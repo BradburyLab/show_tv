@@ -29,7 +29,7 @@ class DVRReader(DVRBase):
         super().__init__(cfg, host, port)
 
     @gen.engine
-    def request_range(self, asset, bitrate, startstamp, duration, stream, callback):
+    def request_range(self, asset, profile, startstamp, duration, stream, callback):
         '''
         '''
         self.l.debug('[DVRReader] range start >>>>>>>>>>>>>>>')
@@ -43,18 +43,18 @@ class DVRReader(DVRBase):
         endstamp = startstamp + duration
 
         self.l.debug('[DVRReader] => asset = {0}'.format(asset))
-        self.l.debug('[DVRReader] => bitrate = {0}'.format(bitrate))
+        self.l.debug('[DVRReader] => profile = {0}'.format(profile))
         self.l.debug('[DVRReader] => start = {0}'.format(startstamp))
         self.l.debug('[DVRReader] => end = {0}'.format(endstamp))
 
         pack = struct.pack(
-            "=B32sLQQ",
+            "=B32s6sQQ",
             # (1) (B) Команда
             self.commands['range'],
             # (2) (32s) Имя ассета
             asset,
-            # (3) (L) Битрейт
-            bitrate,
+            # (3) (6s) Профиль
+            profile,
             # (4) (Q) Время начала
             startstamp,
             # (5) (Q) Время окончания
@@ -96,7 +96,7 @@ class DVRReader(DVRBase):
         callback(playlist)
 
     @gen.engine
-    def load(self, asset, bitrate, startstamp, stream, callback):
+    def load(self, asset, profile, startstamp, stream, callback):
         '''
         '''
         self.l.debug('[DVRReader] load start >>>>>>>>>>>>>>>')
@@ -107,17 +107,17 @@ class DVRReader(DVRBase):
             startstamp = int(startstamp)
 
         self.l.debug('[DVRReader] => asset = {0}'.format(asset))
-        self.l.debug('[DVRReader] => bitrate = {0}'.format(bitrate))
+        self.l.debug('[DVRReader] => profile = {0}'.format(profile))
         self.l.debug('[DVRReader] => startstamp = {0}'.format(startstamp))
 
         pack = struct.pack(
-            "=B32sLQ",
+            "=B32s6sQ",
             # (1) (B) Команда
             self.commands['load'],
             # (2) (32s) Имя ассета
             asset,
-            # (3) (L) Битрейт
-            bitrate,
+            # (3) (6s) Профиль
+            profile,
             # (4) (Q) Время начала
             startstamp,
         )

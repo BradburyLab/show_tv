@@ -25,15 +25,15 @@ class DVRWriter(DVRBase):
     @gen.engine
     def write(
         self,
-        r_t_b,
+        r_t_p,
         start_utc, start_seconds,
         duration, is_pvr,
         path_payload,
     ):
         '''
         '''
-        name = api.asset_name(r_t_b)
-        bitrate = r_t_b.bitrate
+        name = api.asset_name(r_t_p)
+        profile = r_t_p.profile
 
         if not hasattr(self, 'c'):
             yield gen.Task(self.reconnect)
@@ -55,7 +55,7 @@ class DVRWriter(DVRBase):
         payloadlen = os.stat(path_payload).st_size
 
         self.l.debug('[DVRWriter] => name = {0}'.format(name))
-        self.l.debug('[DVRWriter] => bitrate = {0}'.format(bitrate))
+        self.l.debug('[DVRWriter] => profile = {0}'.format(profile))
         self.l.debug('[DVRWriter] => start = {0}'.format(api.bl_int_ts2bl_str(start)))
         self.l.debug('[DVRWriter] => duration = {0}'.format(duration))
         self.l.debug('[DVRWriter] => is_pvr = {0}'.format(is_pvr))
@@ -66,7 +66,7 @@ class DVRWriter(DVRBase):
             # (1) (32s) Имя ассета
             name,
             # (2) (L) Битрейт
-            bitrate,
+            profile,
             # (3) (Q) Время начала чанка
             start,
             # (4) (L) Длительность чанка в мс (int),
