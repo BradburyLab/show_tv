@@ -1,0 +1,20 @@
+270p:
+  bitrate: 300000
+  bandwidth: 500000
+
+360p:
+  bitrate: 500000
+  bandwidth: 900000
+
+406p:
+  bitrate: 1400000
+  bandwidth: 1500000
+
+540p:
+  bitrate: 2150000
+  bandwidth: 2500000
+
+720p:
+  bitrate: 3200000
+  bandwidth: 3500000
+

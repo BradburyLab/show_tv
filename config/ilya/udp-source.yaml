@@ -1,0 +1,35 @@
+pervyj:
+  res-src: # под каждое разрешение свой источник
+    270p: udp://228.8.8.1:8001
+    360p: udp://228.8.9.1:9001
+    406p: udp://228.8.10.1:10001
+
+eurosporthd:
+  res-src:
+    540p: udp://228.8.8.123:9123
+    720p: udp://228.8.10.123:10123
+
+pervyj_multi_in:
+  src: udp://239.255.51.1:1234
+  res:
+    - 270p
+    - 360p
+    - 406p
+
+pervyj_trans:
+  src: udp://239.255.51.1:1234
+  res:
+    - 270p
+    - 360p
+    - 406p
+  params:
+    transcoding: true
+
+pervyj_trans_multicast:
+  src: udp://239.255.51.1:1234
+  res-dst:
+    270p: udp://228.8.18.1:8001
+    360p: udp://228.8.19.1:9001
+    406p: udp://228.8.20.1:10001
+  params:
+    transcoding: true
