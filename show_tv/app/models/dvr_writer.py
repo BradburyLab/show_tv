@@ -34,13 +34,13 @@ def make_QLBQ(path_payload, start_offset, duration, start_utc, is_pvr):
     
     return start, duration, is_pvr, payloadlen
 
-def write_chunk(stream, path_payload, payloadlen, prefix):
+def write_chunk(stream, chunk_fpath, payloadlen, prefix):
     stream.write(prefix)
     
     if configuration.use_sendfile:
-        sendfile(stream, path_payload, payloadlen)
+        sendfile(stream, chunk_fpath, payloadlen)
     else:
-        with open(path_payload, 'rb') as f:
+        with open(chunk_fpath, 'rb') as f:
             stream.write(f.read())
         
     if stream.closed():
@@ -51,86 +51,86 @@ def write_chunk(stream, path_payload, payloadlen, prefix):
         if q_len > 200:
             logger.info("Write queue is too big, %s", q_len)
 
+def encode_strings(*args):
+    return tuple(s.encode() for s in args)
+
 class DVRWriter(DVRBase):
     def __init__(self, cfg, host='127.0.0.1', port=6451, use_sendfile=False):
         super().__init__(cfg, host, port, use_sendfile)
 
-    @gen.engine
-    def write(
-        self,
-        r_t_p,
-        start_utc, start_seconds,
-        duration, is_pvr,
-        path_payload,
-    ):
-        '''
-        '''
-        name = api.asset_name(r_t_p)
-        profile = r_t_p.profile
+def write_full_chunk(
+    stream,
+    chunk_range,
+    start_seconds,
+    duration, is_pvr,
+    chunk_fpath,
+):
+    '''
+    '''
+    r_t_p = chunk_range.r_t_p
+    start_utc = chunk_range.start
+    
+    name = api.asset_name(r_t_p)
+    profile = r_t_p.profile
 
-        if not hasattr(self, 'c'):
-            yield gen.Task(self.reconnect)
+    #if not hasattr(self, 'c'):
+        #yield gen.Task(self.reconnect)
 
-        if self.c.closed():
-            yield gen.Task(self.reconnect)
+    #if stream.closed():
+        #yield gen.Task(self.reconnect)
 
-        if self.c.closed():
-            logger.debug('[DVRWriter] failed to connect')
-            return
+    #if stream.closed():
+        #logger.debug('[DVRWriter] failed to connect')
+        #return
 
-        logger.debug('[DVRWriter] write start >>>>>>>>>>>>>>>')
+    name, profile = encode_strings(name, profile)
 
-        if isinstance(name, str):
-            name = name.encode()
+    logger.debug('[DVRWriter] => name = {0}'.format(name))
+    logger.debug('[DVRWriter] => profile = {0}'.format(profile))
+    start, duration, is_pvr, payloadlen = make_QLBQ(chunk_fpath, start_seconds, duration, start_utc, is_pvr)
 
-        logger.debug('[DVRWriter] => name = {0}'.format(name))
-        logger.debug('[DVRWriter] => profile = {0}'.format(profile))
-        start, duration, is_pvr, payloadlen = make_QLBQ(path_payload, start_seconds, duration, start_utc, is_pvr)
+    pack = pack_prefix(
+        # (1) (32s) Имя ассета
+        name,
+        # (2) (L) Битрейт
+        profile,
+        # (3) (Q) Время начала чанка
+        start,
+        # (4) (L) Длительность чанка в мс (int),
+        duration,
+        # (5) (B) Это PVR?
+        is_pvr,
+        # (6) (L) Длина payload
+        payloadlen,
+    )
 
-        pack = pack_prefix(
-            # (1) (32s) Имя ассета
-            name,
-            # (2) (L) Битрейт
-            profile,
-            # (3) (Q) Время начала чанка
-            start,
-            # (4) (L) Длительность чанка в мс (int),
-            duration,
-            # (5) (B) Это PVR?
-            is_pvr,
-            # (6) (L) Длина payload
-            payloadlen,
-        )
+    #yield [
+        #gen.Task(stream.write, pack),
+        #gen.Task(stream.write, metadata),
+    #]
+    write_chunk(stream, chunk_fpath, payloadlen, pack)
 
-        #yield [
-            #gen.Task(self.c.write, pack),
-            #gen.Task(self.c.write, metadata),
-        #]
-        write_chunk(self.c, path_payload, payloadlen, pack)
+    # fd = os.open(chunk_fpath, os.O_RDONLY)
 
-        logger.debug('[DVRWriter] write finish <<<<<<<<<<<<<<<\n')
+    # @gen.engine
+    # def on_read(buf, rcode, errno):
+    #     os.close(fd)
+    #     if rcode > 0:
+    #         yield gen.Task(
+    #             stream.write,
+    #             b''.join([
+    #                 pack,
+    #                 metadata,
+    #                 buf,
+    #             ])
+    #         )
+    #     elif rcode == 0:
+    #         print("EOF")
+    #     else:
+    #         print("Error: %d" % errno)
+    #     logger.debug('[DVRWriter] write finish <<<<<<<<<<<<<<<\n')
 
-        # fd = os.open(path_payload, os.O_RDONLY)
-
-        # @gen.engine
-        # def on_read(buf, rcode, errno):
-        #     os.close(fd)
-        #     if rcode > 0:
-        #         yield gen.Task(
-        #             stream.write,
-        #             b''.join([
-        #                 pack,
-        #                 metadata,
-        #                 buf,
-        #             ])
-        #         )
-        #     elif rcode == 0:
-        #         print("EOF")
-        #     else:
-        #         print("Error: %d" % errno)
-        #     logger.debug('[DVRWriter] write finish <<<<<<<<<<<<<<<\n')
-
-        # pyaio.aio_read(fd, 0, payloadlen, on_read)
+    # pyaio.aio_read(fd, 0, payloadlen, on_read)
 
 write_dvr_per_profile = configuration.get_cfg_value('write_dvr_per_profile', True)
 
@@ -147,10 +147,11 @@ class WriteType:
 def pack_cmd(fmt, cmd, *args):
     return struct.pack("<B" + fmt, cmd, *args)
 
-def write_to_dvr(dvr_writer, path_payload, start_offset, duration, chunk_range):
+def write_to_dvr(dvr_writer, chunk_fpath, start_offset, duration, chunk_range):
     start_utc = chunk_range.start
     
     if write_dvr_per_profile:
+        obj = chunk_range
         def write_func(stream, is_first):
             (refname, typ), profile = chunk_range.r_t_p
             
@@ -159,27 +160,28 @@ def write_to_dvr(dvr_writer, path_payload, start_offset, duration, chunk_range):
                     "B32s6s",
                     WriteCmd.USE,
                     WriteType.HLS if typ == api.StreamType.HLS else WriteType.HDS,
-                    refname.encode(),
-                    profile.encode()
+                    *encode_strings(refname, profile)
                 )
                 stream.write(use_cmd)
                 
-            qlbq = make_QLBQ(path_payload, start_offset, duration, start_utc, True)
+            qlbq = make_QLBQ(chunk_fpath, start_offset, duration, start_utc, True)
             pack = pack_cmd(
                 "QLBQ",
                 WriteCmd.DATA,
                 *qlbq
             )
             
-            write_chunk(stream, path_payload, qlbq[-1], pack)
-            
-        api.connect_to_dvr(chunk_range, (dvr_writer.host, dvr_writer.port), write_func)
+            write_chunk(stream, chunk_fpath, qlbq[-1], pack)
     else:
-        dvr_writer.write(
-            r_t_p=chunk_range.r_t_p,
-            start_utc=chunk_range.start,
-            start_seconds=start_offset,
-            duration=duration,
-            is_pvr=True,
-            path_payload=chunk_fpath,
-        )
+        obj = dvr_writer
+        def write_func(stream, is_first):
+            write_full_chunk(
+                stream,
+                chunk_range,
+                start_seconds=start_offset,
+                duration=duration,
+                is_pvr=True,
+                chunk_fpath=chunk_fpath,
+            )
+                
+    api.connect_to_dvr(obj, (dvr_writer.host, dvr_writer.port), write_func)

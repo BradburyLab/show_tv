@@ -178,41 +178,49 @@ class StreamState:
     CONNECTING = 1
     OPENED     = 2
 
-logger = logging.getLogger()
+dvr_wlogger = logging.getLogger("DVRWriter")
 
 def connect_to_dvr(obj, addr, write_func):
-    dvr_writer = getattr(obj, "dvr_writer", None)
-    if not dvr_writer:
-        obj.dvr_writer = dvr_writer = make_struct(state=StreamState.CLOSED)
+    dvr_ctx = getattr(obj, "dvr_ctx", None)
+    if not dvr_ctx:
+        obj.dvr_ctx = dvr_ctx = make_struct(state=StreamState.CLOSED)
         
     def start_connection():
-        dvr_writer.state = StreamState.CONNECTING
+        dvr_ctx.state = StreamState.CONNECTING
         
         host, port = addr
         def on_connection(stream):
             if stream:
-                dvr_writer.state = StreamState.OPENED
-                dvr_writer.stream = stream
-                dvr_writer.is_first = True
+                dvr_ctx.state = StreamState.OPENED
+                dvr_ctx.stream = stream
+                dvr_ctx.is_first = True
             else:
-                dvr_writer.state = StreamState.CLOSED
-                logging.error("Can't connect to DVR server %s:%s", host, port)
+                dvr_ctx.state = StreamState.CLOSED
+                dvr_wlogger.error("Can't connect to DVR server %s:%s", host, port)
                 
         connect(host, port, on_connection)
         
-    if dvr_writer.state == StreamState.CLOSED:
+    if dvr_ctx.state == StreamState.CLOSED:
         start_connection()
-    elif dvr_writer.state == StreamState.OPENED:
+    elif dvr_ctx.state == StreamState.OPENED:
         def check_stream():
-            is_closed = dvr_writer.stream.closed()
+            is_closed = dvr_ctx.stream.closed()
             if is_closed:
-                dvr_writer.stream = None
-                dvr_writer.state = StreamState.CLOSED
+                dvr_ctx.stream = None
+                dvr_ctx.state = StreamState.CLOSED
             return not is_closed
             
         if check_stream():
-            write_func(dvr_writer.stream, dvr_writer.is_first)
-            dvr_writer.is_first = False
+            dvr_wlogger.debug('[DVRWriter] write start >>>>>>>>>>>>>>>')
+            
+            try:
+                write_func(dvr_ctx.stream, dvr_ctx.is_first)
+            except:
+                dvr_wlogger.error("DVR Writer Exception", exc_info=1)
+                
+            dvr_wlogger.debug('[DVRWriter] write finish <<<<<<<<<<<<<<\n')
+            
+            dvr_ctx.is_first = False
             check_stream()
         else:
             start_connection()
