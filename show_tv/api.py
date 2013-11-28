@@ -170,3 +170,50 @@ def connect(host, port, callback):
     def on_close():
         callback(None)
     stream.set_close_callback(on_close)
+
+class StreamState:
+    """ tornado.iostream.IOStream дает информацию
+        о соединении в плохом виде, поэтому сами держим состояние """
+    CLOSED     = 0
+    CONNECTING = 1
+    OPENED     = 2
+
+logger = logging.getLogger()
+
+def connect_to_dvr(obj, addr, write_func):
+    dvr_writer = getattr(obj, "dvr_writer", None)
+    if not dvr_writer:
+        obj.dvr_writer = dvr_writer = make_struct(state=StreamState.CLOSED)
+        
+    def start_connection():
+        dvr_writer.state = StreamState.CONNECTING
+        
+        host, port = addr
+        def on_connection(stream):
+            if stream:
+                dvr_writer.state = StreamState.OPENED
+                dvr_writer.stream = stream
+                dvr_writer.is_first = True
+            else:
+                dvr_writer.state = StreamState.CLOSED
+                logging.error("Can't connect to DVR server %s:%s", host, port)
+                
+        connect(host, port, on_connection)
+        
+    if dvr_writer.state == StreamState.CLOSED:
+        start_connection()
+    elif dvr_writer.state == StreamState.OPENED:
+        def check_stream():
+            is_closed = dvr_writer.stream.closed()
+            if is_closed:
+                dvr_writer.stream = None
+                dvr_writer.state = StreamState.CLOSED
+            return not is_closed
+            
+        if check_stream():
+            write_func(dvr_writer.stream, dvr_writer.is_first)
+            dvr_writer.is_first = False
+            check_stream()
+        else:
+            start_connection()
+

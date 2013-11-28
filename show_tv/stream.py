@@ -26,7 +26,8 @@ from configuration import (
     make_struct,
     get_cfg_value,
     cfg,
-    cast_one_source, is_test
+    cast_one_source, is_test,
+    use_sendfile
 )
 
 import api
@@ -349,10 +350,9 @@ def do_stop_chunking(chunk_range):
             start_chunking(chunk_range)
 
 from tornado import gen
-from app.models.dvr_writer import DVRWriter
+from app.models.dvr_writer import DVRWriter, write_to_dvr
 
 dvr_host = cfg['live']['dvr-host']
-use_sendfile = get_cfg_value('use_sendfile', True)
 
 dvr_writer = DVRWriter(
     cfg=cfg,
@@ -360,21 +360,6 @@ dvr_writer = DVRWriter(
     port=cfg['storage']['write-port'],
     use_sendfile=use_sendfile,
 )
-
-write_dvr_per_profile = get_cfg_value('write_dvr_per_profile', True)
-
-def write_chunk_to_dvr(chunk_fpath, start_offset, duration, chunk_range):
-    if write_dvr_per_profile:
-        pass
-    else:
-        dvr_writer.write(
-            r_t_p=chunk_range.r_t_p,
-            start_utc=chunk_range.start,
-            start_seconds=start_offset,
-            duration=duration,
-            is_pvr=True,
-            path_payload=chunk_fpath,
-        )
 
 def add_new_chunk(chunk_range, chunk_ts):
     send_worker_command(WorkerCommand.NEW_CHUNK, chunk_range, chunk_ts)
@@ -412,7 +397,7 @@ def add_new_chunk(chunk_range, chunk_ts):
         )
         # длина чанка
         duration = chunk_duration(i, chunk_range)
-        write_chunk_to_dvr(path_payload, start_seconds, duration, chunk_range)
+        write_to_dvr(dvr_writer, path_payload, start_seconds, duration, chunk_range)
 
         # :TRICKY: tornado умеет генерить ссылки только для простых случаев
         #print(global_variables.application.reverse_url("playlist_multibitrate", chunk_range.r_t_p.refname, 1, 1, "f4m"))
