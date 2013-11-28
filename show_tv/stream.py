@@ -361,6 +361,21 @@ dvr_writer = DVRWriter(
     use_sendfile=use_sendfile,
 )
 
+write_dvr_per_profile = get_cfg_value('write_dvr_per_profile', True)
+
+def write_chunk_to_dvr(chunk_fpath, start_offset, duration, chunk_range):
+    if write_dvr_per_profile:
+        pass
+    else:
+        dvr_writer.write(
+            r_t_p=chunk_range.r_t_p,
+            start_utc=chunk_range.start,
+            start_seconds=start_offset,
+            duration=duration,
+            is_pvr=True,
+            path_payload=chunk_fpath,
+        )
+
 def add_new_chunk(chunk_range, chunk_ts):
     send_worker_command(WorkerCommand.NEW_CHUNK, chunk_range, chunk_ts)
     
@@ -397,14 +412,7 @@ def add_new_chunk(chunk_range, chunk_ts):
         )
         # длина чанка
         duration = chunk_duration(i, chunk_range)
-        dvr_writer.write(
-            r_t_p=chunk_range.r_t_p,
-            start_utc=chunk_range.start,
-            start_seconds=start_seconds,
-            duration=duration,
-            is_pvr=True,
-            path_payload=path_payload,
-        )
+        write_chunk_to_dvr(path_payload, start_seconds, duration, chunk_range)
 
         # :TRICKY: tornado умеет генерить ссылки только для простых случаев
         #print(global_variables.application.reverse_url("playlist_multibitrate", chunk_range.r_t_p.refname, 1, 1, "f4m"))

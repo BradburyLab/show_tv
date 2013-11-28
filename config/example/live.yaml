@@ -60,21 +60,6 @@ logging_level:
 
 version: 0.01
 port: 8910
-#environment: development
-
-#definitions:
-#  360:
-#    bitrate: 300000
-#    bandwidth: 500000
-#    out_number: 3
-#  576:
-#    bitrate: 500000
-#    bandwidth: 900000
-#    out_number: 2
-#  720:
-#    bitrate: 1400000
-#    bandwidth: 1300000
-#    out_number: 1
 
 #max_total: 72
 #use_sendfile: false
