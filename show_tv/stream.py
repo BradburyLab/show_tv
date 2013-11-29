@@ -688,14 +688,19 @@ def force_chunking(r_t):
     # стартуем все разрешения - мультибитрейт же
     res = True
     
-    is_master = is_master_proc()
-    for c_r in chunk_range_dictionary[r_t].values():
-        if is_master and not c_r.is_started:
-            start_chunking(c_r)
-
-        if not c_r.is_started:
-            res = False
-            break
+    profiles = chunk_range_dictionary.get(r_t)
+    if profiles:
+        is_master = is_master_proc()
+        for c_r in profiles.values():
+            if is_master and not c_r.is_started:
+                start_chunking(c_r)
+    
+            if not c_r.is_started:
+                res = False
+                break
+    else:
+        res = False
+        stream_logger.error("force_chunking: no such channel, %s", r_t, stack_info=True)
 
     return res
 
