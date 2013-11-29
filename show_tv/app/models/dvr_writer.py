@@ -37,7 +37,8 @@ def make_QLBQ(path_payload, start_offset, duration, start_utc, is_pvr):
 def write_chunk(stream, chunk_fpath, payloadlen, prefix):
     stream.write(prefix)
     
-    if configuration.use_sendfile:
+    use_sendfile = configuration.use_sendfile
+    if use_sendfile:
         sendfile(stream, chunk_fpath, payloadlen)
     else:
         with open(chunk_fpath, 'rb') as f:
@@ -46,7 +47,7 @@ def write_chunk(stream, chunk_fpath, payloadlen, prefix):
     if stream.closed():
         logger.error("Write to DVR failed")
     else:
-        queue = stream.ws_buffer if self.use_sendfile else stream._write_buffer
+        queue = stream.ws_buffer if use_sendfile else stream._write_buffer
         q_len = len(queue)
         if q_len > 200:
             logger.info("Write queue is too big, %s", q_len)
