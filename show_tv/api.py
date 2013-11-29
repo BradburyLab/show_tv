@@ -2,6 +2,7 @@
 # coding: utf-8
 
 import argparse
+import struct
 
 # в модуле argparse уже есть "rock solid"-реализация
 # структуры, поэтому используем ее
@@ -64,6 +65,28 @@ def make_prefix_format(insert_dvr_magic_number=True, mid_format=''):
 
 def make_dvr_prefix_format(insert_dvr_magic_number):
     return make_prefix_format(insert_dvr_magic_number, DVR_PREFIX_FMT)
+
+class FormatType:
+    META = 0
+    HLS  = 1
+    HDS  = 2
+    HLS_ENCRYPTED = 3
+
+def pack_cmd(fmt, cmd, *args):
+    return struct.pack("<B" + fmt, cmd, *args)
+
+def encode_strings(*args):
+    return tuple(s.encode() for s in args)
+
+def pack_rtp_cmd(cmd, r_t_p, fmt_tail, *tail_args):
+    (refname, typ), profile = r_t_p
+    
+    return pack_cmd(
+        "B32s6s" + fmt_tail,
+        cmd,
+        FormatType.HLS if typ == StreamType.HLS else FormatType.HDS,
+        *(encode_strings(refname, profile) + tail_args)
+    )
 
 from lib.log import Formatter
 import logging

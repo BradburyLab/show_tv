@@ -19,6 +19,13 @@ def call_dvr_cmd(dvr_reader, func, *args, callback, **kwargs):
         dvr_reader.l.debug('[DVRReader] failed to connect')
         callback((False, None))
 
+def pack_read_cmd(cmd, r_t_p, startstamp, tail_fmt, *tail_args):
+    return api.pack_rtp_cmd(cmd, r_t_p, "Q" + tail_fmt,
+        # (4) (Q) Время начала
+        startstamp,
+        *tail_args
+    )    
+
 class DVRReader(DVRBase):
     commands = {
         'load': 0x02,
@@ -29,34 +36,22 @@ class DVRReader(DVRBase):
         super().__init__(cfg, host, port)
 
     @gen.engine
-    def request_range(self, asset, profile, startstamp, duration, stream, callback):
+    def request_range(self, r_t_p, startstamp, duration, stream, callback):
         '''
         '''
         self.l.debug('[DVRReader] range start >>>>>>>>>>>>>>>')
 
-        if isinstance(asset, str):
-            asset = asset.encode()
         if isinstance(startstamp, str):
             startstamp = int(startstamp)
         if isinstance(duration, str):
             duration = int(duration)
         endstamp = startstamp + duration
 
-        self.l.debug('[DVRReader] => asset = {0}'.format(asset))
-        self.l.debug('[DVRReader] => profile = {0}'.format(profile))
+        self.l.debug('[DVRReader] => asset = {0}'.format(r_t_p))
         self.l.debug('[DVRReader] => start = {0}'.format(startstamp))
         self.l.debug('[DVRReader] => end = {0}'.format(endstamp))
 
-        pack = struct.pack(
-            "=B32s6sQQ",
-            # (1) (B) Команда
-            self.commands['range'],
-            # (2) (32s) Имя ассета
-            asset,
-            # (3) (6s) Профиль
-            profile,
-            # (4) (Q) Время начала
-            startstamp,
+        pack = pack_read_cmd(self.commands['range'], r_t_p, startstamp, "Q",
             # (5) (Q) Время окончания
             endstamp,
         )
@@ -96,31 +91,18 @@ class DVRReader(DVRBase):
         callback(playlist)
 
     @gen.engine
-    def load(self, asset, profile, startstamp, stream, callback):
+    def load(self, r_t_p, startstamp, stream, callback):
         '''
         '''
         self.l.debug('[DVRReader] load start >>>>>>>>>>>>>>>')
 
-        if isinstance(asset, str):
-            asset = asset.encode()
         if isinstance(startstamp, str):
             startstamp = int(startstamp)
 
-        self.l.debug('[DVRReader] => asset = {0}'.format(asset))
-        self.l.debug('[DVRReader] => profile = {0}'.format(profile))
+        self.l.debug('[DVRReader] => asset = {0}'.format(r_t_p))
         self.l.debug('[DVRReader] => startstamp = {0}'.format(startstamp))
 
-        pack = struct.pack(
-            "=B32s6sQ",
-            # (1) (B) Команда
-            self.commands['load'],
-            # (2) (32s) Имя ассета
-            asset,
-            # (3) (6s) Профиль
-            profile,
-            # (4) (Q) Время начала
-            startstamp,
-        )
+        pack = pack_read_cmd(self.commands['load'], r_t_p, startstamp, '')
 
         yield gen.Task(stream.write, pack)
         data = yield gen.Task(stream.read_bytes, 8, streaming_callback=None)

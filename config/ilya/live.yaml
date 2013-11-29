@@ -1,14 +1,14 @@
 db-path:    ~/opt/bl/f451/tmp/out_dir
 ffmpeg-bin: ~/opt/src/ffmpeg/git/ffmpeg/objs/inst/bin/ffmpeg
 
-dvr-host: 127.0.0.1 # null # 
+dvr-host: 172.16.0.134 # 127.0.0.1 # null # 
 # добавлять в начале пакета 0x0000f451 для проверки синхронизации
 insert_dvr_magic_number: true
 
 logging_level:
   #tornado.access: WARNING
   #stream: DEBUG # INFO
-  #DVRReader: INFO
+  #DVRReader: DEBUG
   #DVRWriter: INFO
 
 # для тестирования мультикаста "на живую"
@@ -24,6 +24,9 @@ multibitrate_testing: false
 
 # если true, то вещание идет "по требованию", по умолчанию false;
 stream_by_request: true
+
+stream_hls: false
+#stream_hds: false
 
 # вещать все каналы из конфига udp-source.yaml, если не stream_by_request,
 # по умолчанию false; список stream-always-lst игнорируется

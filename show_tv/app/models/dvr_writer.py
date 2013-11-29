@@ -52,9 +52,6 @@ def write_chunk(stream, chunk_fpath, payloadlen, prefix):
         if q_len > 200:
             logger.info("Write queue is too big, %s", q_len)
 
-def encode_strings(*args):
-    return tuple(s.encode() for s in args)
-
 class DVRWriter(DVRBase):
     def __init__(self, cfg, host='127.0.0.1', port=6451, use_sendfile=False):
         super().__init__(cfg, host, port, use_sendfile)
@@ -84,7 +81,7 @@ def write_full_chunk(
         #logger.debug('[DVRWriter] failed to connect')
         #return
 
-    name, profile = encode_strings(name, profile)
+    name, profile = api.encode_strings(name, profile)
 
     logger.debug('[DVRWriter] => name = {0}'.format(name))
     logger.debug('[DVRWriter] => profile = {0}'.format(profile))
@@ -139,34 +136,18 @@ class WriteCmd:
     USE  = 1
     DATA = 2
 
-class WriteType:
-    META = 0
-    HLS  = 1
-    HDS  = 2
-    HLS_ENCRYPTED = 3
-
-def pack_cmd(fmt, cmd, *args):
-    return struct.pack("<B" + fmt, cmd, *args)
-
 def write_to_dvr(dvr_writer, chunk_fpath, start_offset, duration, chunk_range):
     start_utc = chunk_range.start
     
     if write_dvr_per_profile:
         obj = chunk_range
         def write_func(stream, is_first):
-            (refname, typ), profile = chunk_range.r_t_p
-            
             if is_first:
-                use_cmd = pack_cmd(
-                    "B32s6s",
-                    WriteCmd.USE,
-                    WriteType.HLS if typ == api.StreamType.HLS else WriteType.HDS,
-                    *encode_strings(refname, profile)
-                )
+                use_cmd = api.pack_rtp_cmd(WriteCmd.USE, chunk_range.r_t_p, '')
                 stream.write(use_cmd)
                 
             qlbq = make_QLBQ(chunk_fpath, start_offset, duration, start_utc, True)
-            pack = pack_cmd(
+            pack = api.pack_cmd(
                 "QLBQ",
                 WriteCmd.DATA,
                 *qlbq

@@ -717,8 +717,7 @@ def serve_dvr_chunk(hdl, r_t_p, startstamp, callback=None):
         call_dvr_cmd,
         dvr_reader,
         dvr_reader.load,
-        asset=api.asset_name(r_t_p),
-        profile=r_t_p.profile,
+        r_t_p=r_t_p,
         startstamp=startstamp,
     )))
     hdl.finish(payload)
@@ -771,8 +770,7 @@ def load_dvr_pl(r_t_p, startstamp, duration, callback):
     call_dvr_cmd(
         dvr_reader, 
         dvr_reader.request_range,
-        asset=api.asset_name(r_t_p),
-        profile=r_t_p.profile,
+        r_t_p=r_t_p,
         startstamp=startstamp,
         duration=duration,
         callback=callback
