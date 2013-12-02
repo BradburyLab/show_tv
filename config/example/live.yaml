@@ -18,6 +18,14 @@ is_test: true
 # по умолчанию false; список stream-always-lst игнорируется
 #stream_all_channels: false
 
+# вещать часть каналов из конфига udp-source.yaml:
+# - если есть part: N/M, то список делится на M частей и вещается N-я часть каналов (1 <= N <= M)
+# - если есть size: K, то вещаются первые K каналов
+# ; stream-always-lst в этом случае игнорируется
+#stream-range:
+  #part: 2/3
+  #size: 80
+
 # в каких форматах вещать
 #stream_hls: true
 #stream_hds: true
@@ -75,135 +83,4 @@ port: 8910
 
 # по умолчанию равен ['pervyj']
 stream-always-lst:
-  # - 24techno
-  # - 365dney
-  # - 8kanal
-  # - abmoteurs
-  # - amazinglife
-  # - amedia
-  # - animalplanet
-  # - aone
-  # - arrirang
-  # - avtoplus
-  # - babytv
-  # - bluehastler
-  # - bojec
-  # - boomerang
-  # - boycovskiyclub
-  # - cartoon
-  # - detskiy
-  # - deutschewelle
-  # - discoverychannel
-  # - discoveryinvestigations
-  # - discoveryscience
-  # - discoveryworld
-  # - dojd
-  # - domashniezhivotnye
-  # - drive
-  # - englishclub
-  # - eronews
-  # - erosport
-  # - eurokino
-  # - europaplustv
-  # - eurosport
-  # - eurosporthd
-  # - eurosportnews
-  # - fashiontv
-  # - fenixkino
-  # - footbol
-  # - france24
-  # - galaxy
-  # - gulli
-  # - hctv
-  # - illusionplus
-  # - invamedia
-  # - karusel
-  # - khl
-  # - kidsco
-  # - komedijatv
-  # - kp
-  # - ktoestkto
-  # - kuhnjatv
-  # - ljaminor
-  # - matditya
-  # - mcmtop
-  # - mezzo
-  # - mgm
-  # - mir
-  # - mir24
-  # - mojaplaneta
-  # - mtvdance
-  # - mtvhits
-  # - mtvrocks
-  # - multimany
-  # - musicboxru
-  # - musicboxrv
-  # - natgeowild
-  # - nauka2.0
-  # - ngc
-  # - nhkworldtv
-  # - nickJ
-  # - nickelodeion
-  # - nostalgia
-  # - ntv
-  # - o2molodo
-  # - oceantv
-  # - octtb
-  # - ohotairybalka
-  # - olimptv
-  # - oruzhie
-  # - otr
-  # - outdoorchannel
-  # - outdoorhd
-  # - park
-  # - pervyiobrazovatelniyi
   - pervyj
-  # - peterburg5
-  # - playboy
-  # - prihologija21
-  # - prosveshenie
-  # - radostmoya
-  # - raztv
-  # - rbktv
-  # - retrotv
-  # - rossia1
-  # - rossia2
-  # - rossia24
-  # - rossijak
-  # - rusillusion
-  # - rusongtv
-  # - russiatoday
-  # - russkijextrim
-  # - russkiyroman
-  # - rutv
-  # - rysskayanoch
-  # - shansontv
-  # - soyuz
-  # - spas
-  # - sport1
-  # - sport1hd
-  # - sport2
-  # - strana
-  # - styletv
-  # - tdk
-  # - teleputeshestviya
-  # - tiji
-  # - tlc
-  # - tnvplaneta
-  # - tpo
-  # - travel
-  # - travelhd
-  # - tvxxivek
-  # - usadba
-  # - vh1classic
-  # - vh1european
-  # - voprosyiotvety
-  # - vsetv
-  # - xxl
-  # - ymortv
-  # - yspeh
-  # - zakontv
-  # - zdorovoetv
-  # - zeetv
-  # - zhivi
-  # - zoopark

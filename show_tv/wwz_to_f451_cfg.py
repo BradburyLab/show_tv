@@ -36,6 +36,7 @@ def iterate_elements(par_node):
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
+    parser.add_argument("--channel_list", default=None, help="save channel' list to the file")
     parser.add_argument("src_dir", help="where is wowza cfg directory")
     parser.add_argument("dst_cfg_yaml", help="where to save Bradbury Lab' config")
 
@@ -83,17 +84,30 @@ if __name__ == '__main__':
             profiles[profile] = addr
 
     import yaml
-    def save(dst):
+    def dump_yaml(stream, obj):
         return yaml.dump(
-            channels, 
-            stream = dst,
+            obj, 
+            stream = stream,
             default_flow_style=False,
             encoding='utf-8',
             allow_unicode=True,
         )
-        
-
+    
     #print(dst.decode())
     with open(args.dst_cfg_yaml, "w") as dst_f:
-        save(dst_f)
+        dump_yaml(dst_f, channels)
+        
+    ch_list_fname = args.channel_list
+    if ch_list_fname:
+        lst = {"stream-always-lst": sorted(channels)}
+        def dump_ch_lst(dst):
+            return dump_yaml(dst, lst)
+        
+        if ch_list_fname == '-':
+            import sys
+            dump_ch_lst(sys.stdout)
+        else:
+            with open(ch_list_fname, "w") as dst_f:
+                dump_ch_lst(dst_f)
+        
     

@@ -50,3 +50,8 @@ stream-always-lst: # []
   - eurosporthd
 
 #transcoder-mode: true
+
+stream-range:
+  #part: 2/3
+  #size: 80
+  

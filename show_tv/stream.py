@@ -920,9 +920,34 @@ def on_signal(_signum, _ignored_):
 # вещание по запросу
 #
 
-
 stream_by_request = get_cfg_value("stream_by_request", False)
-stream_always_lst = get_cfg_value("stream-always-lst", ['pervyj'])
+
+def calc_sal():
+    def get_channel_lst():
+        return sorted(refname2address_dictionary)
+    
+    if not stream_by_request and get_cfg_value("stream_all_channels", False):
+        stream_always_lst = get_channel_lst()
+    else:
+        stream_range = get_cfg_value("stream-range", None)
+        if stream_range:
+            lst = get_channel_lst()
+            if 'part' in stream_range:
+                q, p = [int(num) for num in stream_range["part"].split("/")]
+                assert (q >= 1) and (q <= p), "for example, 2/2 means second part of two parts"
+                ln = len(lst)
+                beg, end = (ln*(q-1))//p, (ln*q)//p
+                
+                stream_always_lst = lst[beg:end]
+            elif 'size' in stream_range:
+                stream_always_lst = lst[:stream_range["size"]]
+            else:
+                assert False, "stream-range accepts part or size attributes"
+        else:
+            stream_always_lst = get_cfg_value("stream-always-lst", ['pervyj'])
+    return stream_always_lst
+
+stream_always_lst = calc_sal()
 
 if stream_by_request:
     # список вещаемых каналов типа RTClass = (refname, typ) прямо сейчас 
@@ -1236,11 +1261,6 @@ def main():
     global_variables.io_loop = tornado.ioloop.IOLoop.instance()
 
     if is_master:
-        if not stream_by_request and get_cfg_value("stream_all_channels", False):
-            refnames = refname2address_dictionary.keys()
-        else:
-            refnames = stream_always_lst
-    
         # включенные по умолчанию форматы вещания
         stream_fmt_defaults = {
             "hls": True,
@@ -1252,7 +1272,7 @@ def main():
             if is_on:
                 stream_fmt_set.add(vars(StreamType)[key.upper()])
         
-        for i, refname in enumerate(refnames):
+        for i, refname in enumerate(stream_always_lst):
             # эмуляция большого запуска для разработчика - не грузим сильно машину
             # :TRICKY: вещание всех каналов (132) в 6 битрейтах (3*HLS + 3*HDS) 
             # у меня (Муравьев) уже не влезает по памяти (8Gb),
