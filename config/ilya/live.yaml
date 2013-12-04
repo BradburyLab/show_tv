@@ -1,7 +1,7 @@
 db-path:    ~/opt/bl/f451/tmp/out_dir
 ffmpeg-bin: ~/opt/src/ffmpeg/git/ffmpeg/objs/inst/bin/ffmpeg
 
-dvr-host: 172.16.0.134 # 127.0.0.1 # null # 
+dvr-host: null # 172.16.0.134 # 127.0.0.1 # 
 # добавлять в начале пакета 0x0000f451 для проверки синхронизации
 insert_dvr_magic_number: true
 
@@ -52,8 +52,8 @@ stream-always-lst: # []
 #transcoder-mode: true
 
 stream-range:
-  names: pervyj, pervyj_trans-pervyj_trans_multicast
-  part: 1,4-6/6
-  python: [[1, [4, 6]], 6]
+  #names: pervyj, pervyj_trans-pervyj_trans_multicast
+  #part: 1,4-6/6
+  #python: [[1, [4, 6]], 6]
   #size: 80
   

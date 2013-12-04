@@ -1167,9 +1167,7 @@ def activate_web(sockets):
 import sentry
 
 def main():
-    # :TODO: поменять порт по умолчанию на 8451 (или 9451?), как написано
-    # в документации
-    port = get_cfg_value("port", 8910)
+    port = get_cfg_value("port", 9451)
     log_status(
         '\n'
         'Fahrenheit 451 mediaserver. Frontend OTT server.\n'

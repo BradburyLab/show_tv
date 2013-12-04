@@ -41,6 +41,9 @@ is_test: true
 #stream_hls: true
 #stream_hds: true
 
+# HTTP-порт
+#port: 9451
+
 # уровни логирования:
 # - по умолчанию пишется с указанными настройками
 # - можно добавить свой, с произвольным именем
@@ -78,7 +81,6 @@ logging_level:
 # Недокументированные опции
 
 version: 0.01
-port: 8910
 
 #max_total: 72
 #use_sendfile: false
