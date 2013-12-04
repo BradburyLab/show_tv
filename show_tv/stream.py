@@ -931,18 +931,8 @@ def calc_sal():
     else:
         stream_range = get_cfg_value("stream-range", None)
         if stream_range:
-            lst = get_channel_lst()
-            if 'part' in stream_range:
-                q, p = [int(num) for num in stream_range["part"].split("/")]
-                assert (q >= 1) and (q <= p), "for example, 2/2 means second part of two parts"
-                ln = len(lst)
-                beg, end = (ln*(q-1))//p, (ln*q)//p
-                
-                stream_always_lst = lst[beg:end]
-            elif 'size' in stream_range:
-                stream_always_lst = lst[:stream_range["size"]]
-            else:
-                assert False, "stream-range accepts part or size attributes"
+            full_lst = get_channel_lst()
+            stream_always_lst = api.calc_from_stream_range(full_lst, stream_range)
         else:
             stream_always_lst = get_cfg_value("stream-always-lst", ['pervyj'])
     return stream_always_lst

@@ -52,6 +52,8 @@ stream-always-lst: # []
 #transcoder-mode: true
 
 stream-range:
-  #part: 2/3
+  names: pervyj, pervyj_trans-pervyj_trans_multicast
+  part: 1,4-6/6
+  python: [[1, [4, 6]], 6]
   #size: 80
   

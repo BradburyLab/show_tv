@@ -248,3 +248,54 @@ def connect_to_dvr(obj, addr, write_func):
         else:
             start_connection()
 
+def calc_from_stream_range(full_lst, stream_range):
+    stream_lst = []
+    def append_range(beg, end):
+        stream_lst.extend(full_lst[beg:end])
+        
+    def append_ch_range(p1, p2):
+        assert (p1 >= 1) and (p2 >= p1) and (p2 <= q), "for example, 2/2 means second part of two parts"
+        ln = len(full_lst)
+        beg, end = (ln*(p1-1))//q, (ln*p2)//q
+        
+        append_range(beg, end)
+    
+    if 'names' in stream_range:
+        s_lst = stream_range["names"].split(",")
+        for s in s_lst:
+            def get_index(s):
+                return full_lst.index(s.strip())
+            if "-" in s:
+                beg, end = [get_index(s) for s in s.split("-")]
+            else:
+                beg = end = get_index(s)
+                
+            append_range(beg, end+1)
+    elif 'part' in stream_range:
+        p_lst, q = stream_range["part"].split("/")
+        q = int(q)
+        
+        for p in p_lst.split(","):
+            p_r = p.split("-")
+            ln  = len(p_r)
+            assert ln <= 2
+            
+            p1 = p_r[0]
+            p2 = p1
+            if ln > 1:
+                p2 = p_r[1]
+            append_ch_range(int(p1), int(p2))
+    elif 'python' in stream_range:
+        p_lst, q = stream_range["python"]
+        stream_range = []
+        for p in p_lst:
+            if type(p) == list:
+                p1, p2 = p
+            else:
+                p1, p2 = p, p
+            append_ch_range(p1, p2)
+    elif 'size' in stream_range:
+        stream_lst = full_lst[:stream_range["size"]]
+    else:
+        assert False, "stream-range accepts part or size attributes"
+    return stream_lst
