@@ -7,7 +7,7 @@ insert_dvr_magic_number: true
 
 logging_level:
   #tornado.access: WARNING
-  #stream: DEBUG # INFO
+  stream: DEBUG # INFO
   #DVRReader: DEBUG
   #DVRWriter: INFO
 
@@ -25,8 +25,8 @@ multibitrate_testing: false
 # если true, то вещание идет "по требованию", по умолчанию false;
 stream_by_request: true
 
-stream_hls: false
-#stream_hds: false
+#stream_hls: false
+stream_hds: false
 
 # вещать все каналы из конфига udp-source.yaml, если не stream_by_request,
 # по умолчанию false; список stream-always-lst игнорируется
@@ -34,7 +34,7 @@ stream_hls: false
 
 log-path: ~/opt/bl/f451/git/log
 
-#wowza-links: false 
+wowza-links: false 
 
 #do_profiling: true
 
@@ -46,8 +46,9 @@ run-web-workers: false # true #
 #www-dvr-server: http://localhost:8910 # http://192.168.185.178:8451 # 
 
 stream-always-lst: # []
-  - pervyj
-  - eurosporthd
+  #- pervyj
+  #- eurosporthd
+  - pervyj_trans
 
 #transcoder-mode: true
 

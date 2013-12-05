@@ -102,9 +102,12 @@ def written_chunks(chunk_range):
     """ Range готовых чанков """
     return range(chunk_range.beg, ready_chk_end(chunk_range))
 
+def is_test_hds_ex(typ):
+    return not real_hds_chunking and (typ == StreamType.HDS)
+
 def is_test_hds(chunk_range):
     # :REFACTOR: chunk_range.r_t_p.typ
-    return not real_hds_chunking and (chunk_range.r_t_p.r_t.typ == StreamType.HDS)
+    return is_test_hds_ex(chunk_range.r_t_p.r_t.typ)
 
 def may_serve_pl(chunk_range):
     """ Можно ли вещать канал = достаточно ли чанков для выдачи в плейлисте """
@@ -125,22 +128,13 @@ def emulate_live():
 
 is_transcoder = get_cfg_value("transcoder-mode", False)
 
-def run_chunker(src_media_path, typ, chunk_dir, on_new_chunk, on_stop_chunking, is_batch=False):
-    """ Запустить ffmpeg для фрагментирования файла/исходника src_media_path для
-        вещания канала chunk_dir;
-        - on_new_chunk - что делать в момент начала создания нового фрагмента
-        - on_stop_chunking - что делать, если ffmpeg закончил работу
-        - is_batch - не эмулировать вещание, только для VOD-файлов """
-    o_p.force_makedirs(out_fpath(chunk_dir))
+TPClass = namedtuple('TPClass', ['typ', 'profile'])
 
-    # ffmpeg_bin = environment.ffmpeg_bin
-    ffmpeg_bin = os.path.expanduser(cfg['live']['ffmpeg-bin'])
+def make_chunk_options(t_p, chunk_dir, force_transcoding=False):
+    out_dir = out_fpath(chunk_dir)
+    o_p.force_makedirs(out_dir)
 
-    # :TRICKY: так отлавливаем сообщение от segment.c вида "starts with packet stream"
-    in_opts = "-i " + src_media_path
-    if emulate_live() and not is_batch:
-        # эмулируем выдачу видео в реальном времени
-        in_opts = "-re " + in_opts
+    typ, profile = t_p
 
     profiles = {
         "270": "-s 480x270 -b:v 300k -level 2.1 -b:a 64k",
@@ -155,17 +149,16 @@ def run_chunker(src_media_path, typ, chunk_dir, on_new_chunk, on_stop_chunking, 
     aac_opts = "-strict experimental -c:a aac -ac 2 -ar 44100"
 
     def make_out_opts(template, copy_opts):
-        if is_transcoder:
-            name = "406"
+        if is_transcoder or force_transcoding:
             # :TRICKY: сигнал с головной станции содержит какой-то непонятный третий поток => избавляемся от него
-            out_opts = "-map 0:0 -map 0:1 -c:v libx264 -profile:v high %s -r 25 %s" % (aac_opts, profiles[name])
+            p_name = profile[:-1] # без p
+            out_opts = "-map 0:0 -map 0:1 -c:v libx264 -profile:v high %s -r 25 %s" % (aac_opts, profiles[p_name])
         else:
             out_opts = copy_opts
         return template % (out_opts, std_chunk_dur)
     
     is_hls = typ == StreamType.HLS
     if is_hls:
-        ffmpeg_bin += " -v debug"
         # :KLUDGE: разобраться наконец, зачем нужен -map 0 для -f ssegment
         chunk_options = make_out_opts("%s -f ssegment -segment_time %s", "-map 0 -codec copy")
     else:
@@ -177,14 +170,32 @@ def run_chunker(src_media_path, typ, chunk_dir, on_new_chunk, on_stop_chunking, 
             # звука и не будет
             chunk_options = "-codec copy -bsf:a aac_adtstoasc"
         chunk_options = make_out_opts("%s -f hds -hds_time %s", chunk_options)
-    cmd = "%(ffmpeg_bin)s %(in_opts)s %(chunk_options)s" % locals()
-    if is_test:
-        #cmd += " -segment_list %(out_dir)s/playlist.m3u8" % locals()
-        pass
+
+    if get_cfg_value("dump-hls-playlist", False) and is_hls:
+        chunk_options += " -segment_list %(out_dir)s/playlist.m3u8" % locals()
 
     o_fpath = out_fpath(chunk_dir, chunk_tmpl if is_hls else "manifest.f4m")
-    cmd += " %s" % o_fpath
-    #print(cmd)
+    chunk_options += " %s" % o_fpath
+    
+    return chunk_options
+
+def run_chunker_ex(src_media_path, typ, co_lst, on_new_chunk, on_stop_chunking, is_batch):
+    # ffmpeg_bin = environment.ffmpeg_bin
+    ffmpeg_bin = os.path.expanduser(cfg['live']['ffmpeg-bin'])
+
+    is_debug_out = typ == StreamType.HLS
+    if is_debug_out:
+        ffmpeg_bin += " -v debug"
+    
+    # :TRICKY: так отлавливаем сообщение от segment.c вида "starts with packet stream"
+    in_opts = "-i " + src_media_path
+    if emulate_live() and not is_batch:
+        # эмулируем выдачу видео в реальном времени
+        in_opts = "-re " + in_opts
+        
+    co_str = " ".join(co_lst)
+    cmd = "%(ffmpeg_bin)s %(in_opts)s %(co_str)s" % locals()
+    stream_logger.debug("Chunker start: %s", cmd)
 
     Subprocess = tornado.process.Subprocess
     
@@ -257,6 +268,16 @@ def run_chunker(src_media_path, typ, chunk_dir, on_new_chunk, on_stop_chunking, 
 
     return ffmpeg_proc.pid
 
+def run_chunker(src_media_path, t_p, chunk_dir, on_new_chunk, on_stop_chunking, is_batch=False):
+    """ Запустить ffmpeg для фрагментирования файла/исходника src_media_path для
+        вещания канала chunk_dir;
+        - on_new_chunk - что делать в момент начала создания нового фрагмента
+        - on_stop_chunking - что делать, если ffmpeg закончил работу
+        - is_batch - не эмулировать вещание, только для VOD-файлов """
+        
+    chunk_options = make_chunk_options(t_p, chunk_dir)
+    return run_chunker_ex(src_media_path, t_p.typ, [chunk_options], on_new_chunk, on_stop_chunking, is_batch)
+
 def test_src_fpath(fname):
     return out_fpath(o_p.join('../test_src', fname))
 
@@ -318,7 +339,25 @@ def start_chunking(chunk_range):
     if is_test_hds(chunk_range):
         start_test_hds_chunking(chunk_range)
     else:
-        start_ffmpeg_chunking(chunk_range)
+        # def start_ffmpeg_chunking(chunk_range):
+        chunk_range.start_times = []
+    
+        def on_new_chunk(chunk_ts):
+            add_new_chunk(chunk_range, chunk_ts)
+    
+        def on_stop_chunking():
+            do_stop_chunking(chunk_range)
+    
+        (refname, typ), profile = chunk_range.r_t_p
+        if cast_one_source:
+            src_media_path = cast_one_source
+        elif is_test:
+            src_media_path = test_media_path(profile)
+        else:
+            src_media_path = refname2address_dictionary[refname]["res-src"][profile]
+    
+        chunk_dir = "{0}/{1}".format(refname, profile)
+        chunk_range.pid = run_chunker(src_media_path, TPClass(typ, profile), chunk_dir, on_new_chunk, on_stop_chunking)
         
     send_worker_command(WorkerCommand.START, chunk_range)
 
@@ -409,26 +448,6 @@ def add_new_chunk(chunk_range, chunk_ts):
         del chunk_range.start_times[:diff]
         if is_master_proc():
             remove_chunks(range(old_beg, chunk_range.beg), chunk_range)
-
-def start_ffmpeg_chunking(chunk_range):
-    chunk_range.start_times = []
-
-    def on_new_chunk(chunk_ts):
-        add_new_chunk(chunk_range, chunk_ts)
-
-    def on_stop_chunking():
-        do_stop_chunking(chunk_range)
-
-    (refname, typ), profile = chunk_range.r_t_p
-    if cast_one_source:
-        src_media_path = cast_one_source
-    elif is_test:
-        src_media_path = test_media_path(profile)
-    else:
-        src_media_path = refname2address_dictionary[refname]["res-src"][profile]
-
-    chunk_dir = "{0}/{1}".format(refname, profile)
-    chunk_range.pid = run_chunker(src_media_path, typ, chunk_dir, on_new_chunk, on_stop_chunking)
 
 def chunk_duration(i, chunk_range):
     """ Длительность фрагмента в секундах, float """
@@ -599,12 +618,6 @@ def serve_hds_pl(hdl, chunk_range):
 
     serve_hds_abst(hdl, chunk_range.beg, lst, True)
 
-def get_profiles(refname, typ):
-    profiles = chunk_range_dictionary.get(RTClass(refname, typ))
-    if not profiles:
-        raise_error(404)
-    return profiles
-
 def profile2res(profile):
     return cfg['res'][profile]
 
@@ -615,7 +628,7 @@ def get_f4m(hdl, refname, is_live, url_prefix=None):
     # :TRICKY: не нужно вроде
     disable_caching(hdl)
 
-    profiles = get_profiles(refname, StreamType.HDS)
+    profiles = get_profiles_by_rt(refname, StreamType.HDS)
     medias = []
     for profile in profiles:
         abst_url = "%s.abst" % profile
@@ -645,27 +658,64 @@ def make_c_r(c_r_key):
         stop_signal=False,
     )
 
-def get_c_r(r_t_p):
+def get_profiles(r_t, raise_404):
+    channel = chunk_range_dictionary.get(r_t)
+    if channel:
+        c_r = channel.profiles[r_t_p.profile]
+        profiles = channel.profiles
+    else:
+        if raise_404:
+            raise_error(404)
+        profiles = None
+
+    return profiles
+
+def get_c_r(r_t_p, raise_404=False):
     c_r = None
     
-    dct = chunk_range_dictionary.get(r_t_p.r_t)
-    if dct:
-        c_r = dct[r_t_p.profile]
+    profiles = get_profiles(r_t_p.r_t, raise_404)
+    if profiles:
+        c_r = profiles[r_t_p.profile]
 
     return c_r
+
+def get_profiles_by_rt(refname, typ):
+    return get_profiles(RTClass(refname, typ), True)
 
 import collections
 def init_crd():
     for refname, cfg in refname2address_dictionary.items():
+        # пока только 2 варианта - вещание и транскодирование из одного
+        # источника
+        
+        is_transcoding = False
+        res_p = cfg.get('res')
+        
         # :TODO: остальные варианты деления на чанки реализовать
-        res_src = cfg.get('res-src')
-        if res_src:
-            for typ in enum_values(StreamType):
-                r_t = RTClass(refname, typ)
-                dct = chunk_range_dictionary[r_t] = collections.OrderedDict() # {}
+        res_src_p = cfg.get('res-src')
+        if not res_src_p:
+            params = cfg.get('params')
+            if params:
+                is_transcoding = params.get("transcoding")
+
+        if not (is_transcoding and res_p):
+            continue
+        
+        for typ in enum_values(StreamType):
+            r_t = RTClass(refname, typ)
+            channel = chunk_range_dictionary[r_t] = make_struct(
+                profiles = collections.OrderedDict(), # {}
+                is_transcoding = is_transcoding,
+                # :KLUDGE: для is_transcoding используется этот,
+                # иначе используется c_r.is_started (дублирование)
+                is_started = False,
+            )
             
-                for profile in res_src:
-                    dct[profile] = make_c_r(RtPClass(r_t, profile))
+            profiles_src = res_p if is_transcoding else res_src_p
+            profiles = channel.profiles
+            for profile in profiles_src:
+                profiles[profile] = make_c_r(RtPClass(r_t, profile))
+                    
 init_crd()
 
 def raise_error(status):
@@ -688,16 +738,61 @@ def force_chunking(r_t):
     # стартуем все разрешения - мультибитрейт же
     res = True
     
-    profiles = chunk_range_dictionary.get(r_t)
-    if profiles:
+    channel = chunk_range_dictionary.get(r_t)
+    if channel:
         is_master = is_master_proc()
-        for c_r in profiles.values():
-            if is_master and not c_r.is_started:
-                start_chunking(c_r)
-    
-            if not c_r.is_started:
-                res = False
-                break
+        profiles = channel.profiles
+        
+        if channel.is_transcoding:
+            if is_master and not(global_variables.stop_streaming or channel.is_started):
+                assert not is_test_hds_ex(r_t.typ)
+                channel.is_started = True
+                
+                # :TODO!!!:
+                def on_new_chunk(chunk_ts):
+                    #add_new_chunk(chunk_range, chunk_ts)
+                    print("on_new_chunk", chunk_ts)
+            
+                def on_stop_chunking():
+                    #do_stop_chunking(chunk_range)
+                    print("on_stop_chunking")
+            
+                # :REFACTOR!!!:
+                refname, typ = r_t
+                if cast_one_source:
+                    src_media_path = cast_one_source
+                elif is_test:
+                    src_media_path = test_src_fpath("pervyj_in_min.ts")
+                else:
+                    src_media_path = refname2address_dictionary[refname]["src"]
+            
+                co_lst = []
+                for p_name in profiles:
+                    # :REFACTOR!!!:
+                    chunk_dir = "{0}/{1}".format(refname, p_name)
+                    co_lst.append(make_chunk_options(TPClass(typ, p_name), chunk_dir, True))
+
+                # :TODO!!!: следить за этим pid
+                pid = run_chunker_ex(src_media_path, typ, co_lst, on_new_chunk, on_stop_chunking, False)
+                
+                for chunk_range in profiles.values():
+                    # :REFACTOR!!!:
+                    # инициализация
+                    init_cr_start(chunk_range, False)
+                    
+                    # def start_ffmpeg_chunking(chunk_range):
+                    chunk_range.start_times = []
+                    
+                    send_worker_command(WorkerCommand.START, chunk_range)
+            res = channel.is_started
+        else:
+            for c_r in profiles.values():
+                if is_master and not c_r.is_started:
+                    start_chunking(c_r)
+        
+                if not c_r.is_started:
+                    res = False
+                    break
     else:
         res = False
         stream_logger.error("force_chunking: no such channel, %s", r_t, stack_info=True)
@@ -746,7 +841,7 @@ def get_mb_playlist(hdl, asset, extension, is_live, url_prefix):
             'app',
             'templates',
         ))
-        profile_bandwitdhs = [[profile, profile2res(profile)["bandwidth"]] for profile in get_profiles(asset, StreamType.HLS)]
+        profile_bandwitdhs = [[profile, profile2res(profile)["bandwidth"]] for profile in get_profiles_by_rt(asset, StreamType.HLS)]
         playlist = loader.load('multibitrate/playlist.m3u8').generate(
             profile_bandwitdhs=profile_bandwitdhs,
         )
@@ -845,9 +940,7 @@ def get_playlist_singlebitrate(hdl, asset, profile, extension, startstamp=None, 
         get_playlist_dvr(hdl, r_t_p, startstamp, duration)
         return
 
-    chunk_range = get_c_r(r_t_p)
-    if not chunk_range:
-        raise_error(404)
+    chunk_range = get_c_r(r_t_p, True)
 
     r_t = r_t_p.r_t
     if not force_chunking(r_t):
@@ -893,6 +986,11 @@ def try_kill_cr(cr):
 def iterate_cr(profiles):
     return profiles.values()
 
+def stop_profiles_iterator(profiles):
+    for cr in iterate_cr(profiles):
+        if try_kill_cr(cr):
+            yield cr
+
 def on_signal(_signum, _ignored_):
     """ Прекратить работу сервера show_tv по Ctrl+C """
     
@@ -904,9 +1002,8 @@ def on_signal(_signum, _ignored_):
     
         stop_lst = []
         for profiles in chunk_range_dictionary.values():
-            for cr in iterate_cr(profiles):
-                if try_kill_cr(cr):
-                    stop_lst.append(cr.r_t_p)
+            for cr in stop_profiles_iterator(profiles):
+                stop_lst.append(cr.r_t_p)
     
         if stop_lst:
             global_variables.stop_lst = set(stop_lst)
@@ -946,7 +1043,8 @@ if stream_by_request:
     def stop_inactives():
         """ Прекратить вещание каналов, которые никто не смотрит в течении STOP_PERIOD=10 минут """
         
-        for r_t, profiles in chunk_range_dictionary.items():
+        for r_t, channel in chunk_range_dictionary.items():
+            profiles = channel.profiles
             is_started = False
             for c_r in iterate_cr(profiles):
                 if c_r.is_started:
@@ -955,8 +1053,8 @@ if stream_by_request:
             
             if is_started and r_t not in activity_set and r_t.refname not in stream_always_lst:
                 log_status("Stopping inactive: %s", r_t)
-                for c_r in iterate_cr(profiles):
-                    try_kill_cr(c_r)
+                for cr in stop_profiles_iterator(profiles):
+                    pass
                 
         activity_set.clear()
         set_stop_timer()
