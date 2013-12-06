@@ -26,8 +26,15 @@ else:
         stct.__dict__.update(kwargs)
         return stct
 
+
+segment_sign_tmpl = r"(segment|hds):'%s' starts with packet stream:.+pts_time:(?P<pt>[\d,\.]+)"
+
 import re
-segment_sign = re.compile(br"(segment|hds):'(.+)' starts with packet stream:.+pts_time:(?P<pt>[\d,\.]+)")
+def create_segment_re(path):
+    return re.compile(bytes(segment_sign_tmpl % path, "ascii"))
+
+#segment_sign = re.compile(br"(segment|hds):'(.+)' starts with packet stream:.+pts_time:(?P<pt>[\d,\.]+)")
+segment_sign = create_segment_re("(.+)")
 
 class StreamType:
     HLS = 0

@@ -179,7 +179,7 @@ def make_chunk_options(t_p, chunk_dir, force_transcoding=False):
     
     return chunk_options
 
-def run_chunker_ex(src_media_path, typ, co_lst, on_new_chunk, on_stop_chunking, is_batch):
+def run_chunker_ex(src_media_path, typ, co_lst, on_line, on_stop_chunking, is_batch):
     # ffmpeg_bin = environment.ffmpeg_bin
     ffmpeg_bin = os.path.expanduser(cfg['live']['ffmpeg-bin'])
 
@@ -206,14 +206,6 @@ def run_chunker_ex(src_media_path, typ, co_lst, on_new_chunk, on_stop_chunking, 
     
     STREAM = Subprocess.STREAM
     ffmpeg_proc = Subprocess(cmd, stdout=STREAM, stderr=STREAM, shell=via_shell)
-    segment_sign = api.segment_sign
-
-    def on_line(line):
-        m = segment_sign.search(line)
-        if m:
-            #print("new segment:", line)
-            chunk_ts = float(m.group("pt"))
-            on_new_chunk(chunk_ts)
 
     line_sep = re.compile(br"(\n|\r\n?).", re.M)
     errdat = make_struct(txt=b'')
@@ -276,7 +268,16 @@ def run_chunker(src_media_path, t_p, chunk_dir, on_new_chunk, on_stop_chunking, 
         - is_batch - не эмулировать вещание, только для VOD-файлов """
         
     chunk_options = make_chunk_options(t_p, chunk_dir)
-    return run_chunker_ex(src_media_path, t_p.typ, [chunk_options], on_new_chunk, on_stop_chunking, is_batch)
+
+    segment_sign = api.segment_sign
+    def on_line(line):
+        m = segment_sign.search(line)
+        if m:
+            #print("new segment:", line)
+            chunk_ts = float(m.group("pt"))
+            on_new_chunk(chunk_ts)
+    
+    return run_chunker_ex(src_media_path, t_p.typ, [chunk_options], on_line, on_stop_chunking, is_batch)
 
 def test_src_fpath(fname):
     return out_fpath(o_p.join('../test_src', fname))
@@ -364,29 +365,38 @@ def start_chunking(chunk_range):
 stream_logger = api.stream_logger
 log_status = stream_logger.info
 
-def do_stop_chunking(chunk_range):
-    """ Функция, которую нужно выполнить по окончанию вещания (когда закончил
-        работу chunker=ffmpeg """
+def stop_chunk_range(chunk_range):
     chunk_range.is_started = False
     remove_chunks(range(chunk_range.beg, chunk_range.end), chunk_range)
     
     send_worker_command(WorkerCommand.STOP, chunk_range)
 
-    may_restart = not chunk_range.stop_signal
-    if chunk_range.stop_signal:
-        chunk_range.stop_signal = False
+def handle_stop_event(chunking_proc, key):
+    may_restart = not chunking_proc.stop_signal
+    if chunking_proc.stop_signal:
+        chunking_proc.stop_signal = False
     else:
         # обычно это означает, что ffmpeg не хочет работать сразу
-        log_status("Chunking has been stopped unexpectedly: %s", chunk_range)
+        log_status("Chunking has been stopped unexpectedly: %s", chunking_proc)
 
+    need_restart = False
     if global_variables.stop_streaming:
         stop_lst = global_variables.stop_lst
-        stop_lst.discard(chunk_range.r_t_p)
+        stop_lst.discard(key)
         if not stop_lst:
             global_variables.io_loop.stop()
     else:
-        if may_restart:
-            start_chunking(chunk_range)
+        need_restart = may_restart
+        
+    return need_restart
+
+def do_stop_chunking(chunk_range):
+    """ Функция, которую нужно выполнить по окончанию вещания (когда закончил
+        работу chunker=ffmpeg """
+    stop_chunk_range(chunk_range)
+
+    if handle_stop_event(chunk_range, chunk_range.r_t_p):
+        start_chunking(chunk_range)
 
 from tornado import gen
 from app.models.dvr_writer import DVRWriter, write_to_dvr
@@ -649,13 +659,20 @@ refname2address_dictionary = cfg['udp-source']
 # словарь (имя канала, тип вещания, разрешение) => chunk_range
 chunk_range_dictionary = {}
 
+def make_dictionary(**kwargs):
+    return kwargs
+
+stream_def_attrs = make_dictionary(
+    is_started=False,
+    stop_signal=False,
+)
+
 def make_c_r(c_r_key):
     # :TODO: создавать по требованию (ленивая инициализация)
     return make_struct(
-        is_started=False,
         on_first_chunk_handlers=[],
         r_t_p=c_r_key,
-        stop_signal=False,
+        **stream_def_attrs
     )
 
 def get_profiles(r_t, raise_404):
@@ -706,9 +723,9 @@ def init_crd():
             channel = chunk_range_dictionary[r_t] = make_struct(
                 profiles = collections.OrderedDict(), # {}
                 is_transcoding = is_transcoding,
-                # :KLUDGE: для is_transcoding используется этот,
+                # :KLUDGE: для is_transcoding используется этот is_started,
                 # иначе используется c_r.is_started (дублирование)
-                is_started = False,
+                **stream_def_attrs
             )
             
             profiles_src = res_p if is_transcoding else res_src_p
@@ -732,6 +749,53 @@ def make_get_handler(match_pattern, get_handler, is_async=True, name=None):
     Handler.get = tornado.web.asynchronous(get_handler) if is_async else get_handler
     return tornado.web.url(match_pattern, Handler, name=name)
 
+def start_channel(channel):
+    assert not is_test_hds_ex(r_t.typ)
+    channel.is_started = True
+    
+    r_t = channel.r_t
+    # :REFACTOR!!!:
+    refname, typ = r_t
+    if cast_one_source:
+        src_media_path = cast_one_source
+    elif is_test:
+        src_media_path = test_src_fpath("pervyj_in_min.ts")
+    else:
+        src_media_path = refname2address_dictionary[refname]["src"]
+
+    profiles = channel.profiles
+    co_lst = []
+    for p_name in profiles:
+        # :REFACTOR!!!:
+        chunk_dir = "{0}/{1}".format(refname, p_name)
+        co_lst.append(make_chunk_options(TPClass(typ, p_name), chunk_dir, True))
+
+    segment_sign = api.create_segment_re("(.+/(?P<profile>%s)/.+)" % "|".join(profiles))
+    def on_line(line):
+        m = segment_sign.search(line)
+        if m:
+            profile, chunk_ts = str(m.group("profile"), "ascii"), float(m.group("pt"))
+            add_new_chunk(profiles[profile], chunk_ts)
+            
+    def on_stop_chunking():
+        for chunk_range in iterate_cr(channel):
+            stop_chunk_range(chunk_range)
+    
+        if handle_stop_event(channel, r_t):
+            start_channel(channel)
+
+    channel.pid = run_chunker_ex(src_media_path, typ, co_lst, on_line, on_stop_chunking, False)
+    
+    for chunk_range in iterate_cr(channel):
+        # :REFACTOR!!!:
+        # инициализация
+        init_cr_start(chunk_range, False)
+        
+        # def start_ffmpeg_chunking(chunk_range):
+        chunk_range.start_times = []
+        
+        send_worker_command(WorkerCommand.START, chunk_range)
+
 def force_chunking(r_t):
     """ Начать вещание канала по требованию """
 
@@ -741,52 +805,13 @@ def force_chunking(r_t):
     channel = chunk_range_dictionary.get(r_t)
     if channel:
         is_master = is_master_proc()
-        profiles = channel.profiles
         
         if channel.is_transcoding:
             if is_master and not(global_variables.stop_streaming or channel.is_started):
-                assert not is_test_hds_ex(r_t.typ)
-                channel.is_started = True
-                
-                # :TODO!!!:
-                def on_new_chunk(chunk_ts):
-                    #add_new_chunk(chunk_range, chunk_ts)
-                    print("on_new_chunk", chunk_ts)
-            
-                def on_stop_chunking():
-                    #do_stop_chunking(chunk_range)
-                    print("on_stop_chunking")
-            
-                # :REFACTOR!!!:
-                refname, typ = r_t
-                if cast_one_source:
-                    src_media_path = cast_one_source
-                elif is_test:
-                    src_media_path = test_src_fpath("pervyj_in_min.ts")
-                else:
-                    src_media_path = refname2address_dictionary[refname]["src"]
-            
-                co_lst = []
-                for p_name in profiles:
-                    # :REFACTOR!!!:
-                    chunk_dir = "{0}/{1}".format(refname, p_name)
-                    co_lst.append(make_chunk_options(TPClass(typ, p_name), chunk_dir, True))
-
-                # :TODO!!!: следить за этим pid
-                pid = run_chunker_ex(src_media_path, typ, co_lst, on_new_chunk, on_stop_chunking, False)
-                
-                for chunk_range in profiles.values():
-                    # :REFACTOR!!!:
-                    # инициализация
-                    init_cr_start(chunk_range, False)
-                    
-                    # def start_ffmpeg_chunking(chunk_range):
-                    chunk_range.start_times = []
-                    
-                    send_worker_command(WorkerCommand.START, chunk_range)
+                start_channel(channel)
             res = channel.is_started
         else:
-            for c_r in profiles.values():
+            for c_r in iterate_cr(channel):
                 if is_master and not c_r.is_started:
                     start_chunking(c_r)
         
@@ -965,31 +990,35 @@ def get_playlist_singlebitrate(hdl, asset, profile, extension, startstamp=None, 
 #
 import signal
 
-def kill_cr(cr):
+def try_kill_chunking_proc(c_p, is_real_proc=True):
     """ Послать сигнал chunker'у (ffmpeg) прекратить работу """
-    cr.stop_signal = True
-
-    if not is_test_hds(cr):
-        # :TRICKY: если нет мультикаста, то ffmpeg не завершается
-        # на первый SIGTERM
-        # :TODO: в идеале надо бы пускать пару (SIGTERM, SIGKILL)
-        # через таймаут, но лень (только сообщение о новом чанке может не успеть
-        # придти)
-        os.kill(cr.pid, signal.SIGKILL) # SIGTERM)
-
-def try_kill_cr(cr):
-    is_started = cr.is_started
+    is_started = c_p.is_started
     if is_started:
-        kill_cr(cr)
+        c_p.stop_signal = True
+    
+        if is_real_proc:
+            # :TRICKY: если нет мультикаста, то ffmpeg не завершается
+            # на первый SIGTERM
+            # :TODO: в идеале надо бы пускать пару (SIGTERM, SIGKILL)
+            # через таймаут, но лень (только сообщение о новом чанке может не успеть
+            # придти)
+            os.kill(c_p.pid, signal.SIGKILL) # SIGTERM)
     return is_started
 
-def iterate_cr(profiles):
-    return profiles.values()
+def iterate_cr(channel):
+    return channel.profiles.values()
 
-def stop_profiles_iterator(profiles):
-    for cr in iterate_cr(profiles):
-        if try_kill_cr(cr):
-            yield cr
+def stop_channel(channel, stop_lst):
+    def stop_cp(cp, is_real_proc, key):
+        if try_kill_chunking_proc(cr, is_real_proc):
+            stop_lst.append(key)
+    
+    if channel.is_transcoding:
+        stop_cp(channel, True, channel.r_t)
+    else:
+        for cr in iterate_cr(channel):
+            is_real_proc = not is_test_hds(cr)
+            stop_cp(cr, is_real_proc, cr.r_t_p)
 
 def on_signal(_signum, _ignored_):
     """ Прекратить работу сервера show_tv по Ctrl+C """
@@ -1001,9 +1030,8 @@ def on_signal(_signum, _ignored_):
         global_variables.stop_streaming = True
     
         stop_lst = []
-        for profiles in chunk_range_dictionary.values():
-            for cr in stop_profiles_iterator(profiles):
-                stop_lst.append(cr.r_t_p)
+        for channel in chunk_range_dictionary.values():
+            stop_channel(channel, stop_lst)
     
         if stop_lst:
             global_variables.stop_lst = set(stop_lst)
@@ -1044,17 +1072,18 @@ if stream_by_request:
         """ Прекратить вещание каналов, которые никто не смотрит в течении STOP_PERIOD=10 минут """
         
         for r_t, channel in chunk_range_dictionary.items():
-            profiles = channel.profiles
+
+            # :TRICKY: пока старт c_r будет происходить всегда, даже в случае 1-M-процесса,
+            # это будет работать
             is_started = False
-            for c_r in iterate_cr(profiles):
+            for c_r in iterate_cr(channel):
                 if c_r.is_started:
                     is_started = True
                     break
             
             if is_started and r_t not in activity_set and r_t.refname not in stream_always_lst:
                 log_status("Stopping inactive: %s", r_t)
-                for cr in stop_profiles_iterator(profiles):
-                    pass
+                stop_channel(channel, [])
                 
         activity_set.clear()
         set_stop_timer()
