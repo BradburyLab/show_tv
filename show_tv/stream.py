@@ -1052,9 +1052,11 @@ def activate_web(sockets):
             assert not www_stream_link
 
         def wwz_mb_dvr_playlist(hdl, month, day, asset):
-            start, duration = hdl.get_argument("start"), hdl.get_argument("duration")
+            start, duration = hdl.get_argument("start", None), hdl.get_argument("duration", None)
             if not(start and duration):
-                raise_error(400) # Bad Request
+                #raise_error(400) # Bad Request
+                start = 0
+                duration = 86400*1000
                 
             ts = parse_wwz_ts(month, day, start)
             
