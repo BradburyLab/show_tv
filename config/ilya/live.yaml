@@ -17,7 +17,7 @@ logging_level:
 #cast_one_source: udp://236.1.1.1:1234 # cразу после "декриптора"
 
 is_test: true
-#emulate_live: true
+#emulate_live: false
 #use_sendfile: true
 
 multibitrate_testing: false
@@ -46,8 +46,8 @@ run-web-workers: false # true #
 #www-dvr-server: http://localhost:8910 # http://192.168.185.178:8451 # 
 
 stream-always-lst: # []
-  #- pervyj
-  #- eurosporthd
+  - pervyj
+  - eurosporthd
   - pervyj_trans
 
 #transcoder-mode: true

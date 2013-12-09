@@ -678,7 +678,6 @@ def make_c_r(c_r_key):
 def get_profiles(r_t, raise_404):
     channel = chunk_range_dictionary.get(r_t)
     if channel:
-        c_r = channel.profiles[r_t_p.profile]
         profiles = channel.profiles
     else:
         if raise_404:
@@ -692,7 +691,9 @@ def get_c_r(r_t_p, raise_404=False):
     
     profiles = get_profiles(r_t_p.r_t, raise_404)
     if profiles:
-        c_r = profiles[r_t_p.profile]
+        c_r = profiles.get(r_t_p.profile)
+        if not c_r and raise_404:
+            raise_error(404)
 
     return c_r
 
@@ -715,12 +716,13 @@ def init_crd():
             if params:
                 is_transcoding = params.get("transcoding")
 
-        if not (is_transcoding and res_p):
-            continue
+            if not (is_transcoding and res_p):
+                continue
         
         for typ in enum_values(StreamType):
             r_t = RTClass(refname, typ)
             channel = chunk_range_dictionary[r_t] = make_struct(
+                r_t = r_t,
                 profiles = collections.OrderedDict(), # {}
                 is_transcoding = is_transcoding,
                 # :KLUDGE: для is_transcoding используется этот is_started,
@@ -750,10 +752,10 @@ def make_get_handler(match_pattern, get_handler, is_async=True, name=None):
     return tornado.web.url(match_pattern, Handler, name=name)
 
 def start_channel(channel):
+    r_t = channel.r_t
     assert not is_test_hds_ex(r_t.typ)
     channel.is_started = True
     
-    r_t = channel.r_t
     # :REFACTOR!!!:
     refname, typ = r_t
     if cast_one_source:
@@ -1010,7 +1012,7 @@ def iterate_cr(channel):
 
 def stop_channel(channel, stop_lst):
     def stop_cp(cp, is_real_proc, key):
-        if try_kill_chunking_proc(cr, is_real_proc):
+        if try_kill_chunking_proc(cp, is_real_proc):
             stop_lst.append(key)
     
     if channel.is_transcoding:
