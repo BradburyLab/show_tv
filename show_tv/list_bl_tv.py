@@ -8,11 +8,10 @@ def make_path(name):
     return o_p.join(os.path.dirname(__file__), name)
 
 @contextlib.contextmanager
-def make_tbl_clns(req_clns):
+def make_tbl_clns(req_clns, csv_path):
     # stream_fe = признак вещания
     req_clns.extend(["stream_fe", "channel_name_ru"])
     
-    csv_path = make_path('tv_bl.csv')
     with open(csv_path) as csvf:
         tbl = csv.reader(csvf, delimiter=',')
         
@@ -90,7 +89,8 @@ def gen_formatter(dst_fname, fmt):
         write_suffix(fmtr)
 
 def all_channels(req_clns):
-    with make_tbl_clns(req_clns) as (tbl, clns):
+    csv_path = make_path('tv_bl.csv')
+    with make_tbl_clns(req_clns, csv_path) as (tbl, clns):
         for row in tbl:
             name = channel_name(row, clns)
             if name and is_streaming(row, clns):

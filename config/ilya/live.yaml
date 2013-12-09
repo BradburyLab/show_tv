@@ -7,7 +7,7 @@ insert_dvr_magic_number: true
 
 logging_level:
   #tornado.access: WARNING
-  stream: DEBUG # INFO
+  #stream: DEBUG # INFO
   #DVRReader: DEBUG
   #DVRWriter: INFO
 
@@ -24,13 +24,10 @@ multibitrate_testing: false
 
 # если true, то вещание идет "по требованию", по умолчанию false;
 stream_by_request: true
+#stream_all_channels: true
 
 #stream_hls: false
 stream_hds: false
-
-# вещать все каналы из конфига udp-source.yaml, если не stream_by_request,
-# по умолчанию false; список stream-always-lst игнорируется
-#stream_all_channels: true
 
 log-path: ~/opt/bl/f451/git/log
 

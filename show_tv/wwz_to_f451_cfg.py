@@ -33,6 +33,20 @@ def iterate_elements(par_node):
         if isinstance(node, xmldom.Element):
             yield node
 
+import yaml
+def dump_yaml(stream, obj):
+    return yaml.dump(
+        obj, 
+        stream = stream,
+        default_flow_style=False,
+        encoding='utf-8',
+        allow_unicode=True,
+    )
+
+def dump2yaml(fname, data):
+    with open(fname, "w") as dst_f:
+        dump_yaml(dst_f, data)
+
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
@@ -83,19 +97,8 @@ if __name__ == '__main__':
             
             profiles[profile] = addr
 
-    import yaml
-    def dump_yaml(stream, obj):
-        return yaml.dump(
-            obj, 
-            stream = stream,
-            default_flow_style=False,
-            encoding='utf-8',
-            allow_unicode=True,
-        )
-    
     #print(dst.decode())
-    with open(args.dst_cfg_yaml, "w") as dst_f:
-        dump_yaml(dst_f, channels)
+    dump2yaml(args.dst_cfg_yaml, channels)
         
     ch_list_fname = args.channel_list
     if ch_list_fname:
