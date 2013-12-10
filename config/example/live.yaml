@@ -71,8 +71,10 @@ logging_level:
 # внешние ссылки на сам сервер вещания и на DVR-сервер; например, HDS не умеет
 # ходить по корневым ссылкам (почему-то) вида "/path/to/something", поэтому приходится
 # заводить абсолютные; формат ссылок - без слеша в конце
-#www-stream-server:
 #www-dvr-server:
+
+# ссылка на сам сервер; по умолчанию = www-dvr-server
+#www-stream-server:
 
 # лог ошибок в Sentry, по умолчанию в vladimirsky-sentry.bradburylab.tv
 #sentry-dsn: null

@@ -1045,8 +1045,12 @@ def activate_web(sockets):
             return res_ts
 
         wwz_simplified_links = get_cfg_value("wowza-simplified-links", True)
+        
         www_dvr_link    = get_cfg_value("www-dvr-server",    "")
         www_stream_link = get_cfg_value("www-stream-server", "")
+        if not www_stream_link:
+            www_stream_link = www_dvr_link
+        
         if not wwz_simplified_links:
             assert not www_dvr_link
             assert not www_stream_link
