@@ -1071,6 +1071,12 @@ def activate_web(sockets):
                 # :KLUDGE: клиент не умеет ходить по корневым относительным
                 # ссылкам, поэтому везде приходится писать абсолютные ссылки
                 def transform(idx, prefix):
+                    if not prefix:
+                        host_port = hdl.request.headers["Host"]
+                        # :KLUDGE: схему тоже нужно от proxy получать
+                        if host_port:
+                            prefix = "http://%s" % host_port
+                    
                     if prefix:
                         url_prefix[idx] = "{0}{1}".format(prefix, url_prefix[idx])
                         
