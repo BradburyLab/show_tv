@@ -146,7 +146,7 @@ def make_chunk_options(t_p, chunk_dir, force_transcoding=False):
         
         # телевизионные (4:3), как у TightVideo
         # уровни: http://en.wikipedia.org/wiki/H.264#Levels
-        # :TODO: -level и -b:a скопастен => надо правильный поставить
+        # :TODO: -b:a скопастен => надо правильный поставить
         "240": "-s 320x240 -b:v 450k -level 2.1 -b:a 64k",
         "480": "-s 640x480 -b:v 850k -level 3.1 -b:a 96k",
         "576": "-s 720x576 -b:v 1300k -level 3.1 -b:a 128k",
