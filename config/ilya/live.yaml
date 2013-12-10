@@ -7,7 +7,7 @@ insert_dvr_magic_number: true
 
 logging_level:
   #tornado.access: WARNING
-  #stream: DEBUG # INFO
+  stream: DEBUG # INFO
   #DVRReader: DEBUG
   #DVRWriter: INFO
 
@@ -44,8 +44,8 @@ run-web-workers: false # true #
 
 stream-always-lst: # []
   - pervyj
-  - eurosporthd
-  - pervyj_trans
+  #- eurosporthd
+  #- pervyj_trans
 
 #transcoder-mode: true
 

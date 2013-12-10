@@ -18,3 +18,19 @@
   bitrate: 3200000
   bandwidth: 3500000
 
+#
+# TV, TightVideo
+#
+
+240p:
+  bitrate: 450000
+  bandwidth: 500000
+
+480p:
+  bitrate: 850000
+  bandwidth: 900000
+
+576p:
+  bitrate: 1300000
+  bandwidth: 1500000
+
