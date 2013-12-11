@@ -22,15 +22,15 @@
 # TV, TightVideo
 #
 
-240p:
+240tv:
   bitrate: 450000
   bandwidth: 500000
 
-480p:
+480tv:
   bitrate: 850000
   bandwidth: 900000
 
-576p:
+540tv:
   bitrate: 1300000
   bandwidth: 1500000
 
