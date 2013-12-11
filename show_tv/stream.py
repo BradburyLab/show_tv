@@ -1074,6 +1074,8 @@ def activate_web(sockets):
                     if not prefix:
                         host_port = hdl.request.headers["Host"]
                         # :KLUDGE: схему тоже нужно от proxy получать
+                        # :TODO: по стандарту Host должен содержать оригинальный порт,
+                        # а не содержит (nginx не передает либо клиент/wget?/браузер в Host не проставляет)
                         if host_port:
                             prefix = "http://%s" % host_port
                     
