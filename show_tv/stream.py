@@ -137,19 +137,19 @@ def make_chunk_options(t_p, chunk_dir, force_transcoding=False):
     typ, profile = t_p
 
     profiles = {
-        "270": "-s 480x270 -b:v 300k -level 2.1 -b:a 64k",
-        "360": "-s 640x360 -b:v 512k -level 3.0 -b:a 96k",
-        "406": "-s 720x406 -b:v 750k -level 3.1 -b:a 96k",
-        "540": "-s 960x540 -b:v 1400k -level 3.1 -b:a 128k",
-        "720": "-s 1280x720 -b:v 2500k -level 4.0 -b:a 128k",
-        "1080": "-s 1920x1080 -b:v 6000k -level 5.0 -b:a 192k",
+        "270p": "-s 480x270 -b:v 300k -level 2.1 -b:a 64k",
+        "360p": "-s 640x360 -b:v 512k -level 3.0 -b:a 96k",
+        "406p": "-s 720x406 -b:v 750k -level 3.1 -b:a 96k",
+        "540p": "-s 960x540 -b:v 1400k -level 3.1 -b:a 128k",
+        "720p": "-s 1280x720 -b:v 2500k -level 4.0 -b:a 128k",
+        "1080p": "-s 1920x1080 -b:v 6000k -level 5.0 -b:a 192k",
         
         # телевизионные (4:3), как у TightVideo
         # уровни: http://en.wikipedia.org/wiki/H.264#Levels
         # :TODO: -b:a скопастен => надо правильный поставить
-        "240": "-s 320x240 -b:v 450k -level 2.1 -b:a 64k",
-        "480": "-s 640x480 -b:v 850k -level 3.1 -b:a 96k",
-        "576": "-s 720x576 -b:v 1300k -level 3.1 -b:a 128k",
+        "240tv": "-s 320x240 -b:v 450k -level 2.1 -b:a 64k",
+        "480tv": "-s 640x480 -b:v 850k -level 3.1 -b:a 96k",
+        "540tv": "-s 720x540 -b:v 1300k -level 3.1 -b:a 128k",
     }
 
     # 44kHz - для HDS
@@ -158,7 +158,7 @@ def make_chunk_options(t_p, chunk_dir, force_transcoding=False):
     def make_out_opts(template, copy_opts):
         if is_transcoder or force_transcoding:
             # :TRICKY: сигнал с головной станции содержит какой-то непонятный третий поток => избавляемся от него
-            p_name = profile[:-1] # без p
+            p_name = profile #[:-1] # без p
             out_opts = "-map 0:0 -map 0:1 -c:v libx264 -profile:v high %s -r 25 %s" % (aac_opts, profiles[p_name])
         else:
             out_opts = copy_opts
