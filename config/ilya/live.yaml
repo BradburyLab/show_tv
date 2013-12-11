@@ -31,7 +31,7 @@ stream_hds: false
 
 log-path: ~/opt/bl/f451/git/log
 
-wowza-links: false 
+#wowza-links: false 
 
 #do_profiling: true
 

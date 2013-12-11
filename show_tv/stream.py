@@ -1138,6 +1138,17 @@ def activate_web(sockets):
     def append_static_handler(pattern, handler_cls):
         append_hdl(make_static_handler(pattern, db_path, handler_cls))
 
+    # :TODO: все ссылки обрабатывать рекурсивным развертыванием %()s или
+    # чем-то подобным
+    def make_link_pattern(fmt, **kwargs):
+        kwargs.update(
+            # nauka2.0
+            asset = r"(?P<asset>[-\w\.]+)",
+            profile = r"(?P<profile>\w+)",
+        )
+        
+        return fmt % kwargs
+
     if wowza_links:
         def make_wwz_pattern(pattern):
             return r"^/live/(?:_definst_/)?" + pattern
@@ -1147,7 +1158,7 @@ def activate_web(sockets):
         
         # live 
         def make_wwz_live_pattern(pattern):
-            return make_wwz_pattern(r"smil:(?P<asset>[-\w]+)_sd/" + pattern)
+            return make_wwz_pattern(make_link_pattern(r"smil:%(asset)s_sd/") + pattern)
         
         def make_wwz_live_handler(pattern, get_handler):
             return make_get_handler(make_wwz_live_pattern(pattern), get_handler)
@@ -1227,7 +1238,7 @@ def activate_web(sockets):
             wwz_mb_playlist(hdl, asset, False, url_prefix)
             
         def make_wwz_dvr_handler(pattern, get_handler):
-            pattern = make_wwz_pattern(r"(?P<month>\d\d)_(?P<day>\d\d)_(?P<asset>[-\w]+)_(?:\d+)p/" + pattern)
+            pattern = make_wwz_pattern(make_link_pattern(r"(?P<month>\d\d)_(?P<day>\d\d)_%(asset)s_(?:\d+)p/") + pattern)
             return make_get_handler(pattern, get_handler)
 
         extend_hdls(
@@ -1257,7 +1268,8 @@ def activate_web(sockets):
                 def handler(hdl, asset, startstamp, milliseconds, duration, profile, **kwargs):
                     return run_dvr_handler(get_handler, hdl, asset, startstamp, milliseconds, duration, profile, **kwargs)
                 content_prefix = r"(?:data/)?" # ""
-                m_pat = r"^/%s(?P<asset>[-\w]+)/%s/(?P<duration>\d+)/(?P<profile>\w+)" % (content_prefix, api.timestamp_pattern)
+                m_pat = make_link_pattern(r"^/%(c_p)s%(asset)s/%(ts)s/(?P<duration>\d+)/%(profile)s", 
+                                          c_p=content_prefix, ts=api.timestamp_pattern)
                 pattern = r"\.abst" if is_pl else r"/Seg1-Frag(?P<frag_num>\d+)"
                 return make_get_handler(m_pat + pattern, handler)
             
@@ -1289,7 +1301,7 @@ def activate_web(sockets):
         append_static_handler(make_wwz_live_pattern(r"(?P<path>.*)"), WowzaStaticHandler)
     else:
         def make_stream_handler(match_pattern, get_handler):
-            return make_get_handler("^/(?P<asset>[-\w]+)/" + match_pattern, get_handler)
+            return make_get_handler(make_link_pattern("^/%(asset)s/") + match_pattern, get_handler)
         
         def on_get_hds_dvr(hdl, asset, startstamp, duration, profile, frag_num):
             r_t_p = r_t_p_key(asset, StreamType.HDS, profile)
