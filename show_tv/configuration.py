@@ -36,8 +36,8 @@ def parse_args():
     )
     parser.add_argument(
         '-v', '--version',
-        dest='version', type=bool, default=False,
-        help='show verion number',
+        action="store_true",
+        help='show version number',
     )
 
     # env_name = parser.parse_args().environment

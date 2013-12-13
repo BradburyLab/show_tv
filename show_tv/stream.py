@@ -6,6 +6,8 @@
 #  Илья Муравьев
 #
 
+__version__ = "0.3-dev"
+
 import os
 import o_p
 import s_
@@ -1317,13 +1319,21 @@ def activate_web(sockets):
 import sentry
 
 def main():
+    logo = """Fahrenheit 451 mediaserver. Frontend OTT server.
+Copyright Bradbury Lab, 2013
+"""
+    
+    if cfg["do_show_version"]:
+        print(logo + "Version %s" % __version__)
+        import sys
+        sys.exit(0)
+    
     port = get_cfg_value("port", 9451)
     log_status(
         '\n'
-        'Fahrenheit 451 mediaserver. Frontend OTT server.\n'
-        'Copyright Bradbury Lab, 2013\n'
-        'Listens at 0.0.0.0:{0}\n'
-        .format(port)
+        '{logo}'
+        'Listens at 0.0.0.0:{port}\n'
+        .format(**locals())
     )
     
     # для мультипроцессинга: биндим порт сразу, чтобы потом работник(и)/основной
