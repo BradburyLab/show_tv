@@ -10,7 +10,10 @@ import re
        
 def make_dom(s):
     return xmldom.parseString(s)
- 
+
+def make_dom_from_file(fpath):
+    return xmldom.parse(fpath)
+
 # достаточно нахождения первого пока
 def find_node(self, name):
     res = None
