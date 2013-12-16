@@ -100,11 +100,11 @@ import logging
 
 stream_logger = logging.getLogger('stream')
 
-def setup_file_handler(logger, fpath, level):
+def setup_file_handler(logger, fpath, level, is_append=False):
     formatter = Formatter(color=False)
     f = logging.FileHandler(
         fpath,
-        mode='w'
+        mode= "a" if is_append else "w"
     )
     f.setLevel(level)
     f.setFormatter(formatter)

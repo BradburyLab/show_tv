@@ -218,6 +218,16 @@ def run_chunker_ex(src_media_path, typ, co_lst, on_line, on_stop_chunking, is_ba
 
     line_sep = re.compile(br"(\n|\r\n?).", re.M)
     errdat = make_struct(txt=b'')
+    
+    max_line_size = 10
+    err_lst = collections.deque() #[]
+    def send_line(line):
+        err_lst.append(line)
+        overflow = len(err_lst) - max_line_size
+        for i in range(overflow):
+            err_lst.popleft()
+        
+        on_line(line)
 
     def process_lines(dat):
         errdat.txt += dat
@@ -228,7 +238,7 @@ def run_chunker_ex(src_media_path, typ, co_lst, on_line, on_stop_chunking, is_ba
             if m:
                 line_beg = line_end
                 line_end = m.end(1)
-                on_line(errdat.txt[line_beg:line_end])
+                send_line(errdat.txt[line_beg:line_end])
             else:
                 break
 
@@ -247,7 +257,10 @@ def run_chunker_ex(src_media_path, typ, co_lst, on_line, on_stop_chunking, is_ba
         end_set.discard(is_stderr)
         # оба события прошли
         if not end_set:
-            on_stop_chunking()
+            on_stop_chunking(make_struct(
+                retcode = ffmpeg_proc.returncode, 
+                err_lst = err_lst
+            ))
 
     # все придет в on_stderr, сюда только - факт того, что файл
     # закрыли с той стороны (+ пустая строка)
@@ -255,7 +268,7 @@ def run_chunker_ex(src_media_path, typ, co_lst, on_line, on_stop_chunking, is_ba
         process_lines(dat)
         # последняя строка - может быть без eol
         if errdat.txt:
-            on_line(errdat.txt)
+            send_line(errdat.txt)
 
         set_stop(True)
     # в stdout ffmpeg ничего не пишет
@@ -355,8 +368,8 @@ def start_chunking(chunk_range):
         def on_new_chunk(chunk_ts):
             add_new_chunk(chunk_range, chunk_ts)
     
-        def on_stop_chunking():
-            do_stop_chunking(chunk_range)
+        def on_stop_chunking(exit_data):
+            do_stop_chunking(chunk_range, exit_data)
     
         (refname, typ), profile = chunk_range.r_t_p
         if cast_one_source:
@@ -380,13 +393,19 @@ def stop_chunk_range(chunk_range):
     
     send_worker_command(WorkerCommand.STOP, chunk_range)
 
-def handle_stop_event(chunking_proc, key):
+def handle_stop_event(chunking_proc, key, exit_data):
     may_restart = not chunking_proc.stop_signal
     if chunking_proc.stop_signal:
         chunking_proc.stop_signal = False
     else:
         # обычно это означает, что ffmpeg не хочет работать сразу
-        log_status("Chunking has been stopped unexpectedly: %s", chunking_proc)
+        log_status("""Chunking has been stopped unexpectedly: %s
+Return code: %s
+Last lines:
+'
+%s
+'
+""", chunking_proc, exit_data.retcode, b"".join(exit_data.err_lst).decode("utf-8"))
 
     need_restart = False
     if global_variables.stop_streaming:
@@ -399,12 +418,12 @@ def handle_stop_event(chunking_proc, key):
         
     return need_restart
 
-def do_stop_chunking(chunk_range):
+def do_stop_chunking(chunk_range, exit_data):
     """ Функция, которую нужно выполнить по окончанию вещания (когда закончил
         работу chunker=ffmpeg """
     stop_chunk_range(chunk_range)
 
-    if handle_stop_event(chunk_range, chunk_range.r_t_p):
+    if handle_stop_event(chunk_range, chunk_range.r_t_p, exit_data):
         start_chunking(chunk_range)
 
 from tornado import gen
@@ -788,11 +807,11 @@ def start_channel(channel):
             profile, chunk_ts = str(m.group("profile"), "ascii"), float(m.group("pt"))
             add_new_chunk(profiles[profile], chunk_ts)
             
-    def on_stop_chunking():
+    def on_stop_chunking(exit_data):
         for chunk_range in iterate_cr(channel):
             stop_chunk_range(chunk_range)
     
-        if handle_stop_event(channel, r_t):
+        if handle_stop_event(channel, r_t, exit_data):
             start_channel(channel)
 
     channel.pid = run_chunker_ex(src_media_path, typ, co_lst, on_line, on_stop_chunking, False)

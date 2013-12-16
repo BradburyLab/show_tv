@@ -65,7 +65,7 @@ def setup_logger(logger, fname, logging_level):
 # уровень логирования в errors и Sentry
 root_level = logging.WARNING
 
-def setup_custom_logger(name, logging_level, propagate):
+def setup_custom_logger(name, logging_level, propagate, is_append=False):
     logger = logging.getLogger(name)
     logger.propagate = propagate
 
@@ -84,7 +84,7 @@ def setup_custom_logger(name, logging_level, propagate):
             return record.levelno < root_level
         ch.addFilter(on_record)
     
-    api.setup_file_handler(logger, log_name2path(name), logging_level)
+    api.setup_file_handler(logger, log_name2path(name), logging_level, is_append)
 
 def setup_logging():
     path_log = args.log
@@ -122,8 +122,13 @@ def setup_logging():
     if ll_dct2:
         ll_dct.update(ll_dct2)
     
+    # журналы постоянного хранения
+    ll_append_set = set([
+        "stream",
+    ])
+    
     for name, level in ll_dct.items():
-        setup_custom_logger(name, getattr(logging, level), not(name in do_not_propagate))
+        setup_custom_logger(name, getattr(logging, level), not(name in do_not_propagate), name in ll_append_set)
     # ----- </logging.application>
 
 # :TRICKY: окружение нужно в самом начале, поэтому -
