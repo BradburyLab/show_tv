@@ -100,26 +100,26 @@ import logging
 
 stream_logger = logging.getLogger('stream')
 
+def setup_handler(handler, level, logger, is_colored):
+    handler.setLevel(level)
+    
+    formatter = Formatter(color=is_colored)
+    handler.setFormatter(formatter)
+    
+    logger.addHandler(handler)
+
 def setup_file_handler(logger, fpath, level, is_append=False):
-    formatter = Formatter(color=False)
     f = logging.FileHandler(
         fpath,
         mode= "a" if is_append else "w"
     )
-    f.setLevel(level)
-    f.setFormatter(formatter)
-    logger.addHandler(f)
     
-def create_console_handler():
-    formatter = Formatter(color=True)
-    ch = logging.StreamHandler()
-    ch.setFormatter(formatter)
-    return ch
-
+    setup_handler(f, level, logger, False)
+    
 def setup_console_logger(logger, logging_level):
-    ch = create_console_handler()
-    ch.setLevel(logging_level)
-    logger.addHandler(ch)
+    ch = logging.StreamHandler()
+
+    setup_handler(ch, logging_level, logger, True)
     return ch
     
 def setup_logger(logger, fpath, logging_level):

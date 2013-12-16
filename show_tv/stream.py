@@ -91,9 +91,15 @@ def remove_chunks(rng, cr):
     assert is_master_proc()
     
     r_t_p = cr.r_t_p
-    for i in rng:
-        os.unlink(get_chunk_fpath(r_t_p, i))
-
+    try:
+        for i in rng:
+            os.unlink(get_chunk_fpath(r_t_p, i))
+    except FileNotFoundError:
+        # :KLUDGE: не знаю почему, но рисует только один кадр стека
+        # (а раньше, в ~python2 было нормально) => нужно самому высчитывать
+        # стек с помощью traceback.print_stack, см. Formatter.formatException
+        stream_logger.error("remove_chunks", exc_info=True)
+        
 def ready_chk_end(chunk_range):
     """ Конец списка готовых, полностью записанных фрагментов """
     return chunk_range.end-1
@@ -657,7 +663,10 @@ def serve_hds_pl(hdl, chunk_range):
     serve_hds_abst(hdl, chunk_range.beg, lst, True)
 
 def profile2res(profile):
-    return cfg['res'][profile]
+    res = cfg['res'].get(profile)
+    if res is None:
+        raise_error(404, "No such video profile")
+    return res
 
 def get_f4m(hdl, refname, is_live, url_prefix=None):
     """ url_prefix доп. url для плейлистов и фрагментов """
@@ -765,8 +774,8 @@ def init_crd():
                     
 init_crd()
 
-def raise_error(status):
-    raise tornado.web.HTTPError(status)
+def raise_error(status, desc):
+    raise tornado.web.HTTPError(status, reason=desc)
 
 def make_get_handler(match_pattern, get_handler, is_async=True, name=None):
     """ Альтернатива созданию торнадовского обработчика: get_handler - обработка

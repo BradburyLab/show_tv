@@ -6,6 +6,16 @@ from sendfile import sendfile
 def is_head(request):
     return request.method == "HEAD"
 
+#
+# Замечание: при очень больших нагрузках (15Gbit/s) уже вылезают
+# такие ошибки:
+# - validate_absolute_path() прошел, но последующий get_content_size()
+#   вывалился, потому что файл был удален
+# - stream.write(b'', connection._on_write_complete) вызвал исключение,
+#   потому что в этот момент сокет уже оказался закрыт
+# Итого: на адекватных нагрузках такое не происходит => не лечим
+#
+
 class StaticFileHandler(tornado.web.StaticFileHandler):
     
     def initialize(self, **kwargs):
