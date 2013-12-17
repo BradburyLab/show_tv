@@ -73,6 +73,7 @@ def do_client():
     
     class lcls:
         strm = None
+        q_len = 0
     
     @gen.engine
     def reconnect(callback):
@@ -102,6 +103,11 @@ def do_client():
             return
 
         yield gen.Task(write_string, strm, b"Hello, world")
+        
+        def on_queue_change(change):
+            lcls.q_len += change
+            print("Write queue size:", lcls.q_len)
+        strm.on_queue_change = on_queue_change
 
         #fname = '/home/muravyev/opt/bl/f451/git/show_tv/test-data/dump1.txt'
         fname = os.path.expanduser("~/opt/bl/f451/tmp/test_src/pervyj-720x406.ts")
@@ -136,7 +142,7 @@ def do_client():
         # конец передачи данных
         yield gen.Task(write_number, strm, 0)
         
-        close_and_one_second_pause(stream)
+        close_and_one_second_pause(strm)
         
     write()
 

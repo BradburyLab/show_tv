@@ -43,14 +43,13 @@ def write_chunk(stream, chunk_fpath, payloadlen, prefix):
     else:
         with open(chunk_fpath, 'rb') as f:
             stream.write(f.read())
-        
+    
     if stream.closed():
         logger.error("Write to DVR failed")
-    else:
-        queue = stream.ws_buffer if use_sendfile else stream._write_buffer
-        q_len = len(queue)
-        if q_len > 200:
-            logger.info("Write queue is too big, %s", q_len)
+
+def log_queue(q_len):
+    if q_len > 200:
+        logger.info("Write queue is too big, %s", q_len)
 
 class DVRWriter(DVRBase):
     def __init__(self, cfg, host='127.0.0.1', port=6451, use_sendfile=False):
@@ -108,6 +107,9 @@ def write_full_chunk(
     #]
     write_chunk(stream, chunk_fpath, payloadlen, pack)
 
+    queue = stream.ws_buffer if use_sendfile else stream._write_buffer
+    log_queue(len(queue))
+
     # fd = os.open(chunk_fpath, os.O_RDONLY)
 
     # @gen.engine
@@ -140,11 +142,19 @@ def write_to_dvr(dvr_writer, chunk_fpath, start_offset, duration, chunk_range):
     start_utc = chunk_range.start
     
     if write_dvr_per_profile:
+        # расчет суммы размеров очередей по всем сокетам
+        if not "queue_size" in dir(dvr_writer):
+            dvr_writer.queue_size = 0
+        
         obj = chunk_range
         def write_func(stream, is_first):
             if is_first:
                 use_cmd = api.pack_rtp_cmd(WriteCmd.USE, chunk_range.r_t_p, '')
                 stream.write(use_cmd)
+                
+                def on_queue_change(change):
+                    dvr_writer.queue_size += change
+                stream.on_queue_change = on_queue_change
                 
             qlbq = make_QLBQ(chunk_fpath, start_offset, duration, start_utc, True)
             pack = api.pack_cmd(
@@ -154,6 +164,7 @@ def write_to_dvr(dvr_writer, chunk_fpath, start_offset, duration, chunk_range):
             )
             
             write_chunk(stream, chunk_fpath, qlbq[-1], pack)
+            log_queue(dvr_writer.queue_size)
     else:
         obj = dvr_writer
         def write_func(stream, is_first):

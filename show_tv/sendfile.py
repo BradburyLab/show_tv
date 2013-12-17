@@ -32,7 +32,10 @@ def handle_write(self):
                     num_bytes = self.write_to_fd(dat[0])
                     _merge_prefix(dat, num_bytes)
                     dat.popleft()
+
             self.ws_buffer.popleft()
+            self.on_queue_change(-1)
+            
         except socket.error as e:
             # :COPY_N_PASTE:
             if e.args[0] in (errno.EWOULDBLOCK, errno.EAGAIN):
@@ -67,8 +70,12 @@ def try_write(self, callback):
             self._add_io_state(self.io_loop.WRITE)
         self._maybe_add_error_listener()
 
+def append_to_q(self, is_sendfile, item):
+    self.ws_buffer.append((is_sendfile, item))
+    self.on_queue_change(1)
+
 def append_wbuf(self, wbuf):
-    self.ws_buffer.append((False, wbuf))
+    append_to_q(self, False, wbuf)
     
 def append_new_wbuf(self):
     wbuf = deque()
@@ -105,10 +112,15 @@ def write_to_stream(self, data, callback=None):
     try_write(self, callback)
 
 def handle_close_fd(self):
-    for is_sendfile, dat in self.ws_buffer:
+    ws_buffer = self.ws_buffer
+    
+    for is_sendfile, dat in ws_buffer:
         if is_sendfile:
             dat.f.close()
-    self.ws_buffer.clear()
+            
+    ln = len(ws_buffer)
+    ws_buffer.clear()
+    self.on_queue_change(-ln)
 
 import api
 
@@ -117,6 +129,12 @@ def sendfile(self, fpath, size, callback=None):
     
     if not "ws_buffer" in dir(self):
         self.ws_buffer = deque()
+
+        if not "on_queue_change" in dir(self):
+            def on_queue_change(change):
+                pass
+            self.on_queue_change = on_queue_change
+        
         if self._write_buffer:
             append_wbuf(self, self._write_buffer)
             self._write_buffer = None # не используем
@@ -164,7 +182,7 @@ def sendfile(self, fpath, size, callback=None):
             off = 0, 
             sz  = size,
         )
-        self.ws_buffer.append((True, sf))
+        append_to_q(self, True, sf)
     
         try_write(self, callback)
     else:
