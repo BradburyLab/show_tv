@@ -1,9 +1,10 @@
 db-path:    ~/opt/bl/f451/tmp/out_dir
 ffmpeg-bin: ~/opt/src/ffmpeg/git/ffmpeg/objs/inst/bin/ffmpeg
 
-dvr-host: null # 172.16.0.134 # 127.0.0.1 # 
+dvr-host: 127.0.0.1 # null # 172.16.0.134 # 
 # добавлять в начале пакета 0x0000f451 для проверки синхронизации
-insert_dvr_magic_number: true
+#insert_dvr_magic_number: true
+local_dvr: true
 
 logging_level:
   #tornado.access: WARNING
@@ -26,12 +27,12 @@ multibitrate_testing: false
 stream_by_request: true
 #stream_all_channels: true
 
-#stream_hls: false
-stream_hds: false
+stream_hls: false
+#stream_hds: false
 
 log-path: ~/opt/bl/f451/git/log
 
-wowza-links: false 
+#wowza-links: false 
 
 #do_profiling: true
 

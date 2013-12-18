@@ -69,7 +69,7 @@ def hls_chunk_name(i):
     """ Имя i-го фрагмента/чанка """
     return chunk_tmpl % i
 
-db_path = os.path.expanduser(cfg['live']['db-path'])
+db_path = configuration.db_path
 
 def out_fpath(chunk_dir, *fname):
     """ Вернуть полный путь до файла в db-path """
