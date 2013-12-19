@@ -166,6 +166,7 @@ def get_cfg_value(key, def_value=None):
 cast_one_source = get_cfg_value("cast_one_source", None)
 is_test = not cast_one_source and cfg['live']['is_test']
 use_sendfile = get_cfg_value('use_sendfile', True)
+local_dvr    = get_cfg_value("local_dvr", False)
 
 db_path = os.path.expanduser(cfg['live']['db-path'])
 

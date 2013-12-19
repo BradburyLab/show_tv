@@ -870,15 +870,26 @@ dvr_reader = DVRReader(
     port=cfg['storage']['read-port'],
 )
 
+import file_dvr
+
+def make_rtb_db(r_t_p):
+    return file_dvr.RTPDbClass(
+        r_t_p = r_t_p,
+        db_path = db_path
+    )
+
 @gen.engine
 def serve_dvr_chunk(hdl, r_t_p, startstamp, callback=None):
-    payload = check_dvr_backend((yield gen.Task(
-        call_dvr_cmd,
-        dvr_reader,
-        dvr_reader.load,
-        r_t_p=r_t_p,
-        startstamp=startstamp,
-    )))
+    if configuration.local_dvr:
+        payload = file_dvr.request_chunk(make_rtb_db(r_t_p), startstamp)
+    else:
+        payload = check_dvr_backend((yield gen.Task(
+            call_dvr_cmd,
+            dvr_reader,
+            dvr_reader.load,
+            r_t_p=r_t_p,
+            startstamp=startstamp,
+        )))
     hdl.finish(payload)
 
     if callback:
@@ -925,7 +936,7 @@ def ts2sec(ts):
     # хранилка держит timestamp'ы в миллисекундах
     return ts / 1000.0
 
-def load_dvr_pl(r_t_p, startstamp, duration, callback):
+def load_remote_dvr_pl(r_t_p, startstamp, duration, callback):
     call_dvr_cmd(
         dvr_reader, 
         dvr_reader.request_range,
@@ -942,8 +953,17 @@ def check_dvr_backend(res):
     return data
 
 @gen.engine
+def load_dvr_pl(r_t_p, startstamp, duration, callback):
+    if configuration.local_dvr:
+        playlist_data = file_dvr.request_range(make_rtb_db(r_t_p), startstamp, int(duration))
+    else:
+        playlist_data = check_dvr_backend((yield gen.Task(load_remote_dvr_pl, r_t_p, startstamp, duration)))
+    
+    callback(playlist_data)
+
+@gen.engine
 def get_playlist_dvr(hdl, r_t_p, startstamp, duration):
-    playlist_data = check_dvr_backend((yield gen.Task(load_dvr_pl, r_t_p, startstamp, duration)))
+    playlist_data = yield gen.Task(load_dvr_pl, r_t_p, startstamp, duration)
 
     if playlist_data:
         r_t = r_t_p.r_t
@@ -980,7 +1000,7 @@ def get_hds_dvr(hdl, r_t_p, startstamp, duration, frag_num):
     # поддержать вызов load c offset'ом и сама отдаст по HTTP, т.е. лишней
     # работы не будет
 
-    playlist_data = check_dvr_backend((yield gen.Task(load_dvr_pl, r_t_p, startstamp, duration)))
+    playlist_data = yield gen.Task(load_dvr_pl, r_t_p, startstamp, duration)
     if idx > len(playlist_data):
         raise_error(404)
 
@@ -1239,12 +1259,18 @@ def activate_web(sockets):
                 start = 0
                 duration = 86400*1000
                 
-            ts = parse_wwz_ts(month, day, start)
+            if configuration.local_dvr:
+                # :TRICKY: потому что только для тестов
+                r_t_p = (asset, api.StreamType.HDS), "270p"
+                ts, duration = file_dvr.test_dvr_range(make_rtb_db(r_t_p))
+                ts = api.bl_int_ts2bl_str(ts)
+            else:
+                ts = api.ts2bl_str(parse_wwz_ts(month, day, start))
             
-            url_prefix = "{0}/{1}".format(api.ts2bl_str(ts), duration)
+            url_prefix = "{0}/{1}".format(ts, duration)
             if wwz_simplified_links:
                 url_prefix = "/{0}/{1}".format(asset, url_prefix)
-                url_prefix = [url_prefix, "/data{0}".format(url_prefix)]
+                url_prefix = [url_prefix, url_prefix if configuration.local_dvr else "/data{0}".format(url_prefix)]
                 # :KLUDGE: клиент не умеет ходить по корневым относительным
                 # ссылкам, поэтому везде приходится писать абсолютные ссылки
                 def transform(idx, prefix):

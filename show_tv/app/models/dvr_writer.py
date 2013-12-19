@@ -144,9 +144,8 @@ class WriteCmd:
 def write_to_dvr(dvr_writer, chunk_fpath, start_offset, duration, chunk_range):
     start_utc = chunk_range.start
 
-    if configuration.get_cfg_value("local_dvr", False):
-        (name, typ), profile = chunk_range.r_t_p
-        dvr_dir = os.path.join(configuration.db_path, "local_dvr", "%s=%s=%s" % (name, api.DVR_SUFFEXES[typ], profile))
+    if configuration.local_dvr:
+        dvr_dir = api.rtp2local_dvr(r_t_p, db_path)
         import o_p
         o_p.force_makedirs(dvr_dir)
         

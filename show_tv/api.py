@@ -3,6 +3,7 @@
 
 import argparse
 import struct
+import os
 
 # в модуле argparse уже есть "rock solid"-реализация
 # структуры, поэтому используем ее
@@ -306,3 +307,7 @@ def calc_from_stream_range(full_lst, stream_range):
     else:
         assert False, "stream-range accepts part or size attributes"
     return stream_lst
+
+def rtp2local_dvr(r_t_p, db_path):
+    (name, typ), profile = r_t_p
+    return os.path.join(db_path, "local_dvr", "%s=%s=%s" % (name, DVR_SUFFEXES[typ], profile))
