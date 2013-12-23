@@ -7,7 +7,7 @@ dvr-host: null # 127.0.0.1 # 172.16.0.134 #
 local_dvr: true
 
 logging_level:
-  #tornado.access: WARNING
+  tornado.access: INFO # WARNING
   stream: DEBUG # INFO
   #DVRReader: DEBUG
   #DVRWriter: INFO

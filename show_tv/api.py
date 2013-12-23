@@ -157,17 +157,29 @@ def utc_dt2ts(dt):
     return calendar.timegm(dt.utctimetuple())
 
 # принятый в Bradbury стандарт записи дата-времени
-timestamp_pattern = r"(?P<startstamp>\d{12})\.(?P<milliseconds>\d{3})"
-def parse_bl_ts(startstamp, milliseconds):
+timestamp_pattern = r"(?P<full_ts>(?P<year_base>\d{2})?(?P<startstamp>\d{12})\.(?P<milliseconds>\d{3}))"
+def parse_bl_ts(full_ts):
+    m = re.match(timestamp_pattern, full_ts)
+    assert m
+
+    startstamp, milliseconds = m.group("startstamp"), m.group("milliseconds")
+    year_base = m.group("year_base")
+    year_base = (20 if year_base is None else int(year_base))*100
+    
     def rng2int(idx, ln=2):
         return int(startstamp[idx:idx+2])
-    res_ts = datetime.datetime(2000 + rng2int(0), rng2int(2), rng2int(4), 
+
+    res_ts = datetime.datetime(year_base + rng2int(0), rng2int(2), rng2int(4), 
                                rng2int(6),        rng2int(8), rng2int(10))
     utc_tm = utc_dt2ts(res_ts)
     return int(utc_tm*1000) + int(milliseconds) # в миллисекундах
 
 def ts2bl_str(ts):
-    yy = ts.year % 100
+    year = ts.year
+    
+    yy = year % 100
+    if (year - yy) - 2000:
+        yy = year
     
     # :TRICKY: новое форматирование имеет сущ. ограничения на имен идентификаторов, поэтому
     # для сложных вычислений непригодно, :(

@@ -982,8 +982,11 @@ def get_playlist_dvr(hdl, r_t_p, startstamp, duration):
             )
             hdl.finish(playlist)
         elif r_t.typ == StreamType.HDS:
-            first_ts = playlist_data[0]['startstamp']
-            frg_tbl = [[ts2sec(r['startstamp']-first_ts), ts2sec(r['duration'])] for r in playlist_data]
+            # :TRICKY: время в плейлистах и фрагментах должно совпадать!
+            #first_ts = playlist_data[0]['startstamp']
+            #frg_tbl = [[ts2sec(r['startstamp']-first_ts), ts2sec(r['duration'])] for r in playlist_data]
+            frg_tbl = [[ts2sec(r['startstamp']), ts2sec(r['duration'])] for r in playlist_data]
+            
             serve_hds_abst(hdl, 0, frg_tbl, False)
         else:
             assert False
@@ -1307,38 +1310,39 @@ def activate_web(sockets):
             make_wwz_dvr_handler(r"manifest.f4m", wwz_mb_dvr_playlist),
         )
         
-        def run_dvr_handler(get_handler, hdl, asset, startstamp, milliseconds, duration, profile, **kwargs):
+        def run_dvr_handler(get_handler, hdl, asset, full_ts, duration, profile, **kwargs):
             # :REFACTOR:
             typ = Fmt2Typ["abst"]
             r_t_p = r_t_p_key(asset, typ, profile)
             
             #res_ts = parse_wwz_ts(month, day, startstamp)
             #ts = int(res_ts.timestamp()*1000)
-            ts = api.parse_bl_ts(startstamp, milliseconds)
+            ts = api.parse_bl_ts(full_ts)
             return get_handler(hdl, r_t_p, ts, duration, **kwargs)
         
         if wwz_simplified_links:
             # /discoverychannel/131113131113.000/60000/360.abst
             # /discoverychannel/131113131113.000/60000/360/Seg1-FragN
-            def make_dvr_handler(is_pl, get_handler):
-                def handler(hdl, asset, startstamp, milliseconds, duration, profile, **kwargs):
-                    return run_dvr_handler(get_handler, hdl, asset, startstamp, milliseconds, duration, profile, **kwargs)
+            def make_dvr_handler(is_pl, get_handler, add_keys):
+                def handler(hdl, asset, full_ts, duration, profile, **kwargs):
+                    kwargs = {k:kwargs[k] for k in add_keys if k in kwargs}
+                    return run_dvr_handler(get_handler, hdl, asset, full_ts, duration, profile, **kwargs)
                 content_prefix = r"(?:data/)?" # ""
                 m_pat = make_link_pattern(r"^/%(c_p)s%(asset)s/%(ts)s/(?P<duration>\d+)/%(profile)s", 
                                           c_p=content_prefix, ts=api.timestamp_pattern)
                 pattern = r"\.abst" if is_pl else r"/Seg1-Frag(?P<frag_num>\d+)"
                 return make_get_handler(m_pat + pattern, handler)
             
-            def append_dvr_handler(is_pl, get_handler):
-                append_hdl(make_dvr_handler(is_pl, get_handler))
+            def append_dvr_handler(is_pl, get_handler, add_keys=[]):
+                append_hdl(make_dvr_handler(is_pl, get_handler, add_keys))
             
             append_dvr_handler(True, get_playlist_dvr)
-            append_dvr_handler(False, get_hds_dvr)
+            append_dvr_handler(False, get_hds_dvr, ["frag_num"])
         else:
             # :TEMP: удалить, как только станет ясно что wwz_simplified_links работает
             def make_wwz_dvr_proxy_handler(pattern, get_handler):
-                def handler(hdl, month, day, asset, startstamp, milliseconds, duration, profile, **kwargs):
-                    return run_dvr_handler(get_handler, hdl, asset, startstamp, milliseconds, duration, profile, **kwargs)
+                def handler(hdl, month, day, asset, full_ts, duration, profile, **kwargs):
+                    return run_dvr_handler(get_handler, hdl, asset, full_ts, duration, profile, **kwargs)
                 return make_wwz_dvr_handler(api.timestamp_pattern + r"/(?P<duration>\d+)/" + pattern, handler)
              
             handlers.extend([

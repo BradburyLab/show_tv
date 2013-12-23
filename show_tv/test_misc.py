@@ -4,14 +4,9 @@
 if __name__ == '__main__':
     import api
     
-    if False:
-        date_str = "161005131708.111"
-        import re
-        m = re.match(api.timestamp_pattern, date_str)
-        assert m
-        
-        ts = api.parse_bl_ts(m.group("startstamp"), m.group("milliseconds"))
-        print(ts)
+    for date_str in ["161005131708.111", "19700101000200.000"]:
+        ts = api.parse_bl_ts(date_str)
+        #print(ts)
         
         date_str2 = api.bl_int_ts2bl_str(ts)
         assert date_str == date_str2
