@@ -156,6 +156,9 @@ def utc_dt2ts(dt):
     # в dt не установлен tzinfo
     return calendar.timegm(dt.utctimetuple())
 
+def dur2millisec(duration):
+    return int(duration*1000)
+
 # принятый в Bradbury стандарт записи дата-времени
 timestamp_pattern = r"(?P<full_ts>(?P<year_base>\d{2})?(?P<startstamp>\d{12})\.(?P<milliseconds>\d{3}))"
 def parse_bl_ts(full_ts):
@@ -323,3 +326,14 @@ def calc_from_stream_range(full_lst, stream_range):
 def rtp2local_dvr(r_t_p, db_path):
     (name, typ), profile = r_t_p
     return os.path.join(db_path, "local_dvr", "%s=%s=%s" % (name, DVR_SUFFEXES[typ], profile))
+
+def calc_flv_ts(py_ts):
+    # константы, не менять при работающем DVR
+    days = 24 # столько дней влезает в 32 signed bits для хранения в FLV
+    first_date = datetime.datetime(2013, 12, 1)
+    
+    period = datetime.timedelta(days=days).total_seconds()
+    delta = (py_ts - first_date).total_seconds()
+    
+    return delta % period
+

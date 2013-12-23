@@ -22,27 +22,13 @@ if __name__ == '__main__':
         stream_lst = api.calc_from_stream_range(full_lst, stream_range)
         print(stream_lst)
     
-    if True:
+    if False:
         import datetime
         now = datetime.datetime.utcnow()
         #print(now)
         
-        def calc_flv_ts(py_ts):
-            # константы, не менять при работающем DVR
-            days = 24 # столько дней влезает в 32 signed bits для хранения в FLV
-            first_date = datetime.datetime(2013, 12, 1)
-            
-            period = datetime.timedelta(days=days).total_seconds()
-            delta = (py_ts - first_date).total_seconds()
-            
-            return delta % period
-
-        res = calc_flv_ts(now)
+        res = api.calc_flv_ts(now)
         print(res)
         
         # to 32int
         print("%x" % int(res*1000))
-        
-        
-        
-        

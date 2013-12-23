@@ -21,13 +21,12 @@ def pack_prefix(*args):
 
 logger = logging.getLogger("DVRWriter")
 
-def dur2millisec(duration):
-    return int(duration*1000)
+dur2millisec = api.dur2millisec
 
-def make_QLBQ(path_payload, start_offset, duration, start_utc, is_pvr):
-    start = int((api.utc_dt2ts(start_utc) + start_offset)*1000)
+def make_QLBQ(path_payload, start, duration):
     duration = dur2millisec(duration)
     payloadlen = os.stat(path_payload).st_size
+    is_pvr = True
     
     logger.debug('[DVRWriter] => start = {0}'.format(api.bl_int_ts2bl_str(start)))
     logger.debug('[DVRWriter] => duration = {0}'.format(duration))
@@ -61,8 +60,8 @@ class DVRWriter(DVRBase):
 def write_full_chunk(
     stream,
     chunk_range,
-    start_seconds,
-    duration, is_pvr,
+    start_ts,
+    duration,
     chunk_fpath,
 ):
     '''
@@ -87,7 +86,7 @@ def write_full_chunk(
 
     logger.debug('[DVRWriter] => name = {0}'.format(name))
     logger.debug('[DVRWriter] => profile = {0}'.format(profile))
-    start, duration, is_pvr, payloadlen = make_QLBQ(chunk_fpath, start_seconds, duration, start_utc, is_pvr)
+    start, duration, is_pvr, payloadlen = make_QLBQ(chunk_fpath, start_ts, duration)
 
     pack = pack_prefix(
         # (1) (32s) Имя ассета
@@ -141,17 +140,14 @@ class WriteCmd:
     USE  = 1
     DATA = 2
 
-def write_to_dvr(dvr_writer, chunk_fpath, start_offset, duration, chunk_range):
-    start_utc = chunk_range.start
-
+def write_to_dvr(dvr_writer, chunk_fpath, utc_ts, duration, chunk_range):
     if configuration.local_dvr:
-        dvr_dir = api.rtp2local_dvr(r_t_p, db_path)
+        dvr_dir = api.rtp2local_dvr(chunk_range.r_t_p, configuration.db_path)
         import o_p
         o_p.force_makedirs(dvr_dir)
         
         import datetime
-        off = dur2millisec(start_offset)
-        fname = "%s=%s=%s.dvr" % (api.ts2bl_str(start_utc + datetime.timedelta(milliseconds=off)), off, dur2millisec(duration))
+        fname = "%s=%s=%s.dvr" % (api.bl_int_ts2bl_str(utc_ts), utc_ts, dur2millisec(duration))
         import shutil
         shutil.copyfile(chunk_fpath, os.path.join(dvr_dir, fname))
     else:
@@ -170,7 +166,7 @@ def write_to_dvr(dvr_writer, chunk_fpath, start_offset, duration, chunk_range):
                         dvr_writer.queue_size += change
                     stream.on_queue_change = on_queue_change
                     
-                qlbq = make_QLBQ(chunk_fpath, start_offset, duration, start_utc, True)
+                qlbq = make_QLBQ(chunk_fpath, utc_ts, duration)
                 pack = api.pack_cmd(
                     "QLBQ",
                     WriteCmd.DATA,
@@ -185,9 +181,8 @@ def write_to_dvr(dvr_writer, chunk_fpath, start_offset, duration, chunk_range):
                 write_full_chunk(
                     stream,
                     chunk_range,
-                    start_seconds=start_offset,
+                    start_ts=start_ts,
                     duration=duration,
-                    is_pvr=True,
                     chunk_fpath=chunk_fpath,
                 )
                     

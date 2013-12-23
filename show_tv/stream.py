@@ -187,6 +187,11 @@ def make_chunk_options(t_p, chunk_dir, force_transcoding=False):
             # звука и не будет
             chunk_options = "-codec copy -bsf:a aac_adtstoasc"
         chunk_options = make_out_opts("%s -f hds -hds_time %s", chunk_options)
+        
+        # ts в плейлистах и фрагментах должны совпадать
+        # :REFACTOR: + :KLUDGE: либо там, либо тут, но не 2 раза
+        now = datetime.datetime.utcnow()
+        chunk_options += " -ss -%s" % api.calc_flv_ts(now)
 
     if get_cfg_value("dump-hls-playlist", False) and is_hls:
         chunk_options += " -segment_list %(out_dir)s/playlist.m3u8" % locals()
@@ -480,9 +485,14 @@ def add_new_chunk(chunk_range, chunk_ts):
             chunk_range.r_t_p,
             i
         )
+
+        if chunk_range.r_t_p.r_t.typ == StreamType.HDS:
+            utc_ts = start_seconds
+        else:
+            utc_ts = api.utc_dt2ts(chunk_range.start) + start_seconds
         # длина чанка
         duration = chunk_duration(i, chunk_range)
-        write_to_dvr(dvr_writer, path_payload, start_seconds, duration, chunk_range)
+        write_to_dvr(dvr_writer, path_payload, api.dur2millisec(utc_ts), duration, chunk_range)
 
         # :TRICKY: tornado умеет генерить ссылки только для простых случаев
         #print(global_variables.application.reverse_url("playlist_multibitrate", chunk_range.r_t_p.refname, 1, 1, "f4m"))
