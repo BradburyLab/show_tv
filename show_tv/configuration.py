@@ -12,6 +12,12 @@ import yaml
 # import o_p
 import api
 
+
+# в Bradbury обычно 3 секунду GOP, а фрагмент:
+# - HLS: 6 секунд (раньше было 9)
+# - HDS: 6 секунд
+DEFAULT_CHUNK_DURATION = 6
+
 make_struct = api.make_struct
 
 cur_directory = os.path.dirname(__file__)
@@ -38,6 +44,13 @@ def parse_args():
         '-v', '--version',
         action="store_true",
         help='show version number',
+    )
+    parser.add_argument(
+        '-d', '--duration',
+        dest='chunk_duration',
+        type=int,
+        default=None,
+        help="chunk duration"
     )
 
     # env_name = parser.parse_args().environment
@@ -172,3 +185,8 @@ db_path = os.path.expanduser(cfg['live']['db-path'])
 
 # Устанавливаем логи
 setup_logging()
+
+
+chunk_dur = args.chunk_duration if args.chunk_duration \
+                else get_cfg_value("chunk-duration",
+                                   DEFAULT_CHUNK_DURATION)

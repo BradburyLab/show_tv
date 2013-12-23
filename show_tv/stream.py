@@ -29,11 +29,16 @@ from configuration import (
     get_cfg_value,
     cfg,
     cast_one_source, is_test,
-    use_sendfile
+    use_sendfile,
+    chunk_dur
+
 )
 
 import api
 import mp_server
+
+
+
 
 def int_ceil(float_):
     """ Округлить float в больщую сторону """
@@ -58,10 +63,7 @@ RtPClass = namedtuple('RtPClass', ['r_t', 'profile'])
 def r_t_p_key(refname, typ, profile):
     return RtPClass(RTClass(refname, typ), profile)
 
-# в Bradbury обычно 3 секунду GOP, а фрагмент:
-# - HLS: 6 секунд (раньше было 9)
-# - HDS: 6 секунд
-std_chunk_dur = 6
+
 # формат фрагментов
 NUM_FORMAT_SIZE = 8
 chunk_tmpl = "out%%0%sd.ts" % NUM_FORMAT_SIZE
@@ -122,7 +124,7 @@ def may_serve_pl(chunk_range):
     if is_test_hds(chunk_range):
         this_chunk_dur = 3
     else:
-        this_chunk_dur = std_chunk_dur
+        this_chunk_dur = chunk_dur
 
     # максимум столько секунд храним
     min_total = 12
@@ -170,7 +172,7 @@ def make_chunk_options(t_p, chunk_dir, force_transcoding=False):
             out_opts = "-map 0:0 -map 0:1 -c:v libx264 -profile:v high %s -r 25 %s" % (aac_opts, profiles[p_name])
         else:
             out_opts = copy_opts
-        return template % (out_opts, std_chunk_dur)
+        return template % (out_opts, chunk_dur)
     
     is_hls = typ == StreamType.HLS
     if is_hls:
@@ -460,7 +462,7 @@ def add_new_chunk(chunk_range, chunk_ts):
             hdl()
 
     max_total = get_cfg_value('max_total', 72) # максимум столько секунд храним
-    max_cnt = int_ceil(float(max_total) / std_chunk_dur)
+    max_cnt = int_ceil(float(max_total) / chunk_dur)
     diff = ready_chunks(chunk_range) - max_cnt
 
     # <DVR writer> --------------------------------------------------------
@@ -607,7 +609,7 @@ def start_test_hds_chunking(chunk_range):
 
         # максимум столько секунд храним
         max_total = cfg['live']['max_total']
-        #max_cnt = int_ceil(float(max_total) / std_chunk_dur)
+        #max_cnt = int_ceil(float(max_total) / chunk_dur)
         max_cnt = int_ceil(float(max_total) / 3)
         diff = ready_chunks(chunk_range) - max_cnt
         if diff > 0:
