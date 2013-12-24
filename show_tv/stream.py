@@ -786,7 +786,7 @@ def init_crd():
                     
 init_crd()
 
-def raise_error(status, desc):
+def raise_error(status, desc=None):
     raise tornado.web.HTTPError(status, reason=desc)
 
 def make_get_handler(match_pattern, get_handler, is_async=True, name=None):
