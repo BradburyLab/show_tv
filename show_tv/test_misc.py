@@ -25,10 +25,11 @@ if __name__ == '__main__':
     if False:
         import datetime
         now = datetime.datetime.utcnow()
-        #print(now)
-        
+        print(now)
         res = api.calc_flv_ts(now)
-        print(res)
+        print("%x" % res)
+
+        import time
+        time.sleep(1)
         
-        # to 32int
-        print("%x" % int(res*1000))
+        print(api.restore_utc_ts(res))

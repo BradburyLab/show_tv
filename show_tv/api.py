@@ -4,6 +4,11 @@
 import argparse
 import struct
 import os
+import math
+
+def int_ceil(float_):
+    """ Округлить float в больщую сторону """
+    return int(math.ceil(float_))
 
 # в модуле argparse уже есть "rock solid"-реализация
 # структуры, поэтому используем ее
@@ -154,7 +159,7 @@ def utc_dt2ts(dt):
     #utc_tm = res_ts.timestamp()
     # :TRICKY: разницы между utctimetuple() и timetuple() нет, если
     # в dt не установлен tzinfo
-    return calendar.timegm(dt.utctimetuple())
+    return calendar.timegm(dt.utctimetuple()) + dt.microsecond / 1000000.
 
 def dur2millisec(duration):
     return int(duration*1000)
@@ -175,7 +180,7 @@ def parse_bl_ts(full_ts):
     res_ts = datetime.datetime(year_base + rng2int(0), rng2int(2), rng2int(4), 
                                rng2int(6),        rng2int(8), rng2int(10))
     utc_tm = utc_dt2ts(res_ts)
-    return int(utc_tm*1000) + int(milliseconds) # в миллисекундах
+    return dur2millisec(utc_tm) + int(milliseconds) # в миллисекундах
 
 def ts2bl_str(ts):
     year = ts.year
@@ -187,11 +192,15 @@ def ts2bl_str(ts):
     # :TRICKY: новое форматирование имеет сущ. ограничения на имен идентификаторов, поэтому
     # для сложных вычислений непригодно, :(
     #ts_str = "{yy:02d}{ts.month:02d}{ts.day:02d}{ts.hour:02d}{ts.minute:02d}{ts.second:02d}.{int(ts.microsecond/1000):03d}".format_map(s_.EvalFormat())
-    ts_str = "%(yy)02d%(ts.month)02d%(ts.day)02d%(ts.hour)02d%(ts.minute)02d%(ts.second)02d.%(int(ts.microsecond/1000))03d" % s_.EvalFormat()
+    # :TRICKY: int_ceil() вместо int(), чтобы избежать погрешностей в 1 миллисекунду, см. request_names(rtp_db, startstamp, 1)
+    ts_str = "%(yy)02d%(ts.month)02d%(ts.day)02d%(ts.hour)02d%(ts.minute)02d%(ts.second)02d.%(int_ceil(ts.microsecond/1000))03d" % s_.EvalFormat()
     return ts_str
 
+def bl_int_ts2py_ts(ts):
+    return datetime.datetime.utcfromtimestamp(ts / 1000.)
+
 def bl_int_ts2bl_str(ts):
-    dt = datetime.datetime.utcfromtimestamp(ts / 1000.)
+    dt = bl_int_ts2py_ts(ts)
     return ts2bl_str(dt)
 
 global_variables = make_struct(
@@ -327,13 +336,38 @@ def rtp2local_dvr(r_t_p, db_path):
     (name, typ), profile = r_t_p
     return os.path.join(db_path, "local_dvr", "%s=%s=%s" % (name, DVR_SUFFEXES[typ], profile))
 
-def calc_flv_ts(py_ts):
-    # константы, не менять при работающем DVR
-    days = 24 # столько дней влезает в 32 signed bits для хранения в FLV
-    first_date = datetime.datetime(2013, 12, 1)
-    
-    period = datetime.timedelta(days=days).total_seconds()
-    delta = (py_ts - first_date).total_seconds()
-    
-    return delta % period
+# константы, не менять при работающем DVR
+# :TRICKY: ровно такое число значений может принимать поле ts в FLV-контейнере
+# (чуть меньше 25 дней)
+FLV_PERIOD = 2**31
+first_date = datetime.datetime(2013, 12, 1)
 
+def calc_flv_rest(delta):
+    return delta % FLV_PERIOD
+
+def calc_flv_delta(py_ts):
+    return dur2millisec((py_ts - first_date).total_seconds())
+
+def calc_flv_ts(py_ts):
+    return calc_flv_rest(calc_flv_delta(py_ts))
+
+def calc_flv_sec(py_ts):
+    return calc_flv_ts(py_ts) / 1000.
+
+def restore_utc_ts(flv_ts):
+    now = datetime.datetime.utcnow()
+    now_delta = calc_flv_delta(now)
+    flv_now   = calc_flv_rest(now_delta)
+
+    diff1 = flv_now - flv_ts
+    if diff1 > 0:
+        diff2 = diff1 - FLV_PERIOD
+    else:
+        diff2 = diff1 + FLV_PERIOD
+        
+    nearest_diff = diff1 if abs(diff1) < abs(diff2) else diff2
+    delta = now_delta - nearest_diff
+    return first_date + datetime.timedelta(milliseconds=delta)
+        
+def ts2flv(ts):
+    return calc_flv_sec(bl_int_ts2py_ts(ts))

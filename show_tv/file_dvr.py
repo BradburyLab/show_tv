@@ -10,7 +10,7 @@ RTPDbClass = collections.namedtuple('RTPDbClass', ['r_t_p', 'db_path'])
 def rtp_db2dir(rtp_db):
     return api.rtp2local_dvr(rtp_db.r_t_p, rtp_db.db_path)
 
-is_internal_pts_sort = True
+is_internal_pts_sort = False # True
 
 # :KLUDGE: файлового API как к базе данных нет, поэтому загружаем
 # все в память и там сортируем
@@ -41,11 +41,8 @@ def parse_dvr_fname(fname):
     ts = chunker_ts if is_internal_pts_sort else utc_ts
     return ts, dur
 
-def sec2dur(sec):
-    return int(1000*sec)
-
 def min2dur(mins):
-    return sec2dur(mins*60)
+    return api.dur2millisec(mins*60)
 
 def test_dvr_range(rtp_db):
     dvr_lst = load_dvr_lst(rtp_db)
@@ -145,10 +142,10 @@ def request_chunk(rtp_db, startstamp):
         with open(o_p.join(rtp_db2dir(rtp_db), names[0]), "rb") as f:
                 payload = f.read()
                     
-        return payload
+    return payload
 
 def main():
-    r_t_p = ("pervyj", api.StreamType.HDS), "270p"
+    r_t_p = ("pervyj", api.StreamType.HDS), "406p"
     db_path = os.path.expanduser('~/opt/bl/f451/tmp/out_dir')
 
     rtp_db = RTPDbClass(
@@ -158,9 +155,11 @@ def main():
      
     ts, duration = test_dvr_range(rtp_db)
     res_lst = request_range(rtp_db, ts, duration)
-    print(res_lst)
     
-    payload = request_chunk(rtp_db, res_lst[-1]["startstamp"])
+    ts = res_lst[0]["startstamp"]
+    print(ts, api.ts2flv(ts))
+    
+    payload = request_chunk(rtp_db, ts)
 
 if __name__ == "__main__":
     main()

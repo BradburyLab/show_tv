@@ -11,7 +11,6 @@ __version__ = "0.3-dev"
 import os
 import o_p
 import s_
-import math
 # import list_bl_tv
 import logging
 import re
@@ -37,12 +36,7 @@ from configuration import (
 import api
 import mp_server
 
-
-
-
-def int_ceil(float_):
-    """ Округлить float в больщую сторону """
-    return int(math.ceil(float_))
+int_ceil = api.int_ceil
 
 StreamType = api.StreamType
 
@@ -191,7 +185,7 @@ def make_chunk_options(t_p, chunk_dir, force_transcoding=False):
         # ts в плейлистах и фрагментах должны совпадать
         # :REFACTOR: + :KLUDGE: либо там, либо тут, но не 2 раза
         now = datetime.datetime.utcnow()
-        chunk_options += " -ss -%s" % api.calc_flv_ts(now)
+        chunk_options += " -ss -%s" % api.calc_flv_sec(now)
 
     if get_cfg_value("dump-hls-playlist", False) and is_hls:
         chunk_options += " -segment_list %(out_dir)s/playlist.m3u8" % locals()
@@ -478,8 +472,7 @@ def add_new_chunk(chunk_range, chunk_ts):
     ):
         # индекс того чанка, который готов
         i = chunk_range.end-2
-        # время в секундах от начала создания первого чанка
-        start_seconds = chunk_range.start_times[i-chunk_range.beg]
+        start_time = chunk_range.start_times[i-chunk_range.beg]
         # путь до файла с готовым чанком
         path_payload = get_chunk_fpath(
             chunk_range.r_t_p,
@@ -487,9 +480,14 @@ def add_new_chunk(chunk_range, chunk_ts):
         )
 
         if chunk_range.r_t_p.r_t.typ == StreamType.HDS:
-            utc_ts = start_seconds
+            # ffmpeg может выдавать большее значение, поэтому снова
+            # считаем остаток
+            flv_ts = api.calc_flv_rest(api.dur2millisec(start_time))
+            utc_ts = api.utc_dt2ts(api.restore_utc_ts(flv_ts))
         else:
-            utc_ts = api.utc_dt2ts(chunk_range.start) + start_seconds
+            # время в секундах от начала создания первого чанка
+            start_offset = start_time - chunk_range.start_times[chunk_range.beg]
+            utc_ts = api.utc_dt2ts(chunk_range.start) + start_offset
         # длина чанка
         duration = chunk_duration(i, chunk_range)
         write_to_dvr(dvr_writer, path_payload, api.dur2millisec(utc_ts), duration, chunk_range)
@@ -995,7 +993,9 @@ def get_playlist_dvr(hdl, r_t_p, startstamp, duration):
             # :TRICKY: время в плейлистах и фрагментах должно совпадать!
             #first_ts = playlist_data[0]['startstamp']
             #frg_tbl = [[ts2sec(r['startstamp']-first_ts), ts2sec(r['duration'])] for r in playlist_data]
-            frg_tbl = [[ts2sec(r['startstamp']), ts2sec(r['duration'])] for r in playlist_data]
+            #frg_tbl = [[ts2sec(r['startstamp']), ts2sec(r['duration'])] for r in playlist_data]
+            
+            frg_tbl = [[api.ts2flv(r['startstamp']), ts2sec(r['duration'])] for r in playlist_data]
             
             serve_hds_abst(hdl, 0, frg_tbl, False)
         else:
