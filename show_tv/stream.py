@@ -1270,9 +1270,10 @@ def activate_web(sockets):
         def wwz_mb_dvr_playlist(hdl, month, day, asset):
             start, duration = hdl.get_argument("start", None), hdl.get_argument("duration", None)
             if not(start and duration):
-                #raise_error(400) # Bad Request
-                start = 0
-                duration = 86400*1000
+                # :TODO: сделать "live dvr" последнего часа 
+                #start = 0
+                #duration = 86400*1000
+                raise_error(400) # Bad Request
                 
             if configuration.local_dvr:
                 # :TRICKY: потому что только для тестов
