@@ -129,7 +129,7 @@ def handle_close_fd(self):
     ws_buffer = self.ws_buffer
     
     for is_sendfile, dat in ws_buffer:
-        if is_sendfile:
+        if is_sendfile and dat.f:
             dat.f.close()
             
     ln = len(ws_buffer)
