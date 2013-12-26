@@ -400,6 +400,10 @@ def stop_chunk_range(chunk_range):
     
     send_worker_command(WorkerCommand.STOP, chunk_range)
 
+def stop_io_loop(stop_lst):
+    if not stop_lst:
+        global_variables.io_loop.stop()
+
 def handle_stop_event(chunking_proc, key, exit_data):
     may_restart = not chunking_proc.stop_signal
     if chunking_proc.stop_signal:
@@ -418,8 +422,8 @@ Last lines:
     if global_variables.stop_streaming:
         stop_lst = global_variables.stop_lst
         stop_lst.discard(key)
-        if not stop_lst:
-            global_variables.io_loop.stop()
+        
+        stop_io_loop(stop_lst)
     else:
         need_restart = may_restart
         
@@ -445,11 +449,31 @@ dvr_writer = DVRWriter(
     use_sendfile=use_sendfile,
 )
 
+# :TRICKY: наш DVR-сервер не справляется с 132 каналами * 3 битрейта,
+# поэтому такое умолчание (1)
+max_dvr_bitrates = get_cfg_value("max-dvr-bitrates", 1)
+
+def filter_profiles(profile_keys):
+    # :KLUDGE: ключи словаря не отсортированы, поэтому вручную
+    all_profiles = list(profile_keys)
+    all_profiles.sort()
+    
+    return all_profiles[-max_dvr_bitrates:]
+
+def is_bitrate_allowed_to_write(r_t_p):
+    res = True
+    if max_dvr_bitrates:
+        all_profiles = get_profiles(r_t_p.r_t, False).keys()
+        res = r_t_p.profile in filter_profiles(all_profiles)
+    return res
+
 def add_new_chunk(chunk_range, chunk_ts):
     send_worker_command(WorkerCommand.NEW_CHUNK, chunk_range, chunk_ts)
     
     if chunk_range.end == 0:
-        chunk_range.start = datetime.datetime.utcnow()
+        # GMT-время начала трансляции 
+        # (чтобы время записи первого чанка было = datetime.datetime.utcnow())
+        chunk_range.start = api.utc_dt2ts(datetime.datetime.utcnow()) - chunk_ts
 
     chunk_range.start_times.append(chunk_ts)
     chunk_range.end += 1
@@ -464,30 +488,31 @@ def add_new_chunk(chunk_range, chunk_ts):
     max_cnt = int_ceil(float(max_total) / chunk_dur)
     diff = ready_chunks(chunk_range) - max_cnt
 
+    r_t_p = chunk_range.r_t_p
+
     # <DVR writer> --------------------------------------------------------
     if (
         is_master_proc() and 
         bool(dvr_host) and
-        chunk_range.end > 1
+        chunk_range.end > 1 and
+        is_bitrate_allowed_to_write(r_t_p)
     ):
         # индекс того чанка, который готов
         i = chunk_range.end-2
         start_time = chunk_range.start_times[i-chunk_range.beg]
         # путь до файла с готовым чанком
         path_payload = get_chunk_fpath(
-            chunk_range.r_t_p,
+            r_t_p,
             i
         )
 
-        if chunk_range.r_t_p.r_t.typ == StreamType.HDS:
+        if r_t_p.r_t.typ == StreamType.HDS:
             # ffmpeg может выдавать большее значение, поэтому снова
             # считаем остаток
             flv_ts = api.calc_flv_rest(api.dur2millisec(start_time))
             utc_ts = api.utc_dt2ts(api.restore_utc_ts(flv_ts))
         else:
-            # время в секундах от начала создания первого чанка
-            start_offset = start_time - chunk_range.start_times[chunk_range.beg]
-            utc_ts = api.utc_dt2ts(chunk_range.start) + start_offset
+            utc_ts = chunk_range.start + start_time
         # длина чанка
         duration = chunk_duration(i, chunk_range)
         write_to_dvr(dvr_writer, path_payload, api.dur2millisec(utc_ts), duration, chunk_range)
@@ -685,7 +710,7 @@ def get_f4m(hdl, refname, is_live, url_prefix=None):
     # :TRICKY: не нужно вроде
     disable_caching(hdl)
 
-    profiles = get_profiles_by_rt(refname, StreamType.HDS)
+    profiles = get_profiles_by_rt(refname, StreamType.HDS, is_live)
     medias = []
     for profile in profiles:
         abst_url = "%s.abst" % profile
@@ -744,8 +769,11 @@ def get_c_r(r_t_p, raise_404=False):
 
     return c_r
 
-def get_profiles_by_rt(refname, typ):
-    return get_profiles(RTClass(refname, typ), True)
+def get_profiles_by_rt(refname, typ, is_live):
+    profiles = get_profiles(RTClass(refname, typ), True).keys()
+    if not is_live and max_dvr_bitrates:
+        profiles = filter_profiles(profiles)
+    return profiles
 
 import collections
 def init_crd():
@@ -926,7 +954,7 @@ def get_mb_playlist(hdl, asset, extension, is_live, url_prefix):
             'app',
             'templates',
         ))
-        profile_bandwitdhs = [[profile, profile2res(profile)["bandwidth"]] for profile in get_profiles_by_rt(asset, StreamType.HLS)]
+        profile_bandwitdhs = [[profile, profile2res(profile)["bandwidth"]] for profile in get_profiles_by_rt(asset, StreamType.HLS, is_live)]
         playlist = loader.load('multibitrate/playlist.m3u8').generate(
             profile_bandwitdhs=profile_bandwitdhs,
         )
@@ -1107,10 +1135,11 @@ def on_signal(_signum, _ignored_):
         for channel in chunk_range_dictionary.values():
             stop_channel(channel, stop_lst)
     
-        if stop_lst:
-            global_variables.stop_lst = set(stop_lst)
-        else:
-            global_variables.io_loop.stop()
+        # :TRICKY: даже если stop_lst пуст, все равно заводим атрибут - 
+        # может сработать ожидающий handle_stop_event()
+        global_variables.stop_lst = set(stop_lst)
+
+        stop_io_loop(global_variables.stop_lst)
     else:
         # рабочие процессы завершаются по закрытию мастера
         pass
