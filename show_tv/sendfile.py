@@ -15,11 +15,22 @@ def writing(self):
 _merge_prefix = tornado.iostream._merge_prefix
 
 def handle_write(self):
+    check_end = True
     while self.ws_buffer:
         is_sendfile, dat = self.ws_buffer[0]
         try:
             # :TODO: учитывать нулевое копирование байт, см. IOStream._write_buffer_frozen
             if is_sendfile:
+                if dat.f is None:
+                    is_ok, f = try_open(dat.fpath)
+                    if is_ok:
+                        dat.f = f
+                    else:
+                        gen_log.warning("sendfile/handle_write: can't open %s", dat.fpath)
+                        self.close()
+                        check_end = False
+                        break
+                     
                 while dat.sz > 0:
                     num_bytes = os.sendfile(self.fileno(), dat.f.fileno(), dat.off, dat.sz)
                     dat.off += num_bytes
@@ -51,12 +62,15 @@ def handle_write(self):
                     gen_log.warning("Write error on %d: %s",
                                     self.fileno(), e)
                 self.close(exc_info=True)
-                return
-    if not self.ws_buffer and self._write_callback:
-        # :COPY_N_PASTE:
-        callback = self._write_callback
-        self._write_callback = None
-        self._run_callback(callback)
+                check_end = False
+                break
+
+    if check_end:
+        if not self.ws_buffer and self._write_callback:
+            # :COPY_N_PASTE:
+            callback = self._write_callback
+            self._write_callback = None
+            self._run_callback(callback)
 
 from tornado.util import bytes_type
 from tornado import stack_context
@@ -122,6 +136,14 @@ def handle_close_fd(self):
     ws_buffer.clear()
     self.on_queue_change(-ln)
 
+def try_open(fpath):
+    is_ok, f = True, None
+    try:
+        f = open(fpath, "rb")
+    except Exception:
+        is_ok = False
+    return is_ok, f
+
 import api
 
 def sendfile(self, fpath, size, callback=None):
@@ -161,17 +183,17 @@ def sendfile(self, fpath, size, callback=None):
             orig_close_fd()
         replace_meth("close_fd", close_fd)
 
-    # :TRICKY: сразу открываем файл, потому что так проще
-
-    # :TRICKY: жестокая реальность говорит нам, что файлы
-    # могут не открываться, "Too many open files" => тогда
-    # ничего не остается, кроме как закрыть поток, иначе будем
-    # писать ерунду
     is_ok = True
-    try:
-        f = open(fpath, "rb")
-    except Exception:
-        is_ok = False
+    
+    open_by_request = True
+    if open_by_request:
+        f = None
+    else:
+        # :TRICKY: жестокая реальность говорит нам, что файлы
+        # могут не открываться, "Too many open files" => тогда
+        # ничего не остается, кроме как закрыть поток, иначе будем
+        # писать ерунду
+        is_ok, f = try_open(fpath)
         
     if is_ok:
         # :TRICKY: нельзя менять значения tuple'а
@@ -181,6 +203,7 @@ def sendfile(self, fpath, size, callback=None):
             f   = f, 
             off = 0, 
             sz  = size,
+            fpath = fpath,
         )
         append_to_q(self, True, sf)
     

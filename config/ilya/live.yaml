@@ -28,12 +28,12 @@ multibitrate_testing: false
 stream_by_request: true
 #stream_all_channels: true
 
-stream_hls: false
+#stream_hls: false
 #stream_hds: false
 
 log-path: ~/opt/bl/f451/git/log
 
-#wowza-links: false 
+wowza-links: false 
 
 #do_profiling: true
 
