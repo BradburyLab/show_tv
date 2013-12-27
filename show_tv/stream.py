@@ -1285,16 +1285,10 @@ def activate_web(sockets):
                 res_ts = dt_class.utcfromtimestamp(res_ts.timestamp())
             return res_ts
 
-        wwz_simplified_links = get_cfg_value("wowza-simplified-links", True)
-        
         www_dvr_link    = get_cfg_value("www-dvr-server",    "")
         www_stream_link = get_cfg_value("www-stream-server", "")
         if not www_stream_link:
             www_stream_link = www_dvr_link
-        
-        if not wwz_simplified_links:
-            assert not www_dvr_link
-            assert not www_stream_link
 
         def wwz_mb_dvr_playlist(hdl, month, day, asset):
             start, duration = hdl.get_argument("start", None), hdl.get_argument("duration", None)
@@ -1321,28 +1315,24 @@ def activate_web(sockets):
             else:
                 ts = api.ts2bl_str(parse_wwz_ts(month, day, start))
             
-            url_prefix = "{0}/{1}".format(ts, duration)
-            if wwz_simplified_links:
-                url_prefix = "/{0}/{1}".format(asset, url_prefix)
-                url_prefix = [url_prefix, url_prefix if configuration.local_dvr else "/data{0}".format(url_prefix)]
-                # :KLUDGE: клиент не умеет ходить по корневым относительным
-                # ссылкам, поэтому везде приходится писать абсолютные ссылки
-                def transform(idx, prefix):
-                    if not prefix:
-                        host_port = hdl.request.headers["Host"]
-                        # :KLUDGE: схему тоже нужно от proxy получать
-                        # :TODO: по стандарту Host должен содержать оригинальный порт,
-                        # а не содержит (nginx не передает либо клиент/wget?/браузер в Host не проставляет)
-                        if host_port:
-                            prefix = "http://%s" % host_port
+            url_prefix = "/{0}/{1}/{2}".format(asset, ts, duration)
+            url_prefix = [url_prefix, url_prefix if configuration.local_dvr else "/data{0}".format(url_prefix)]
+            # :KLUDGE: клиент не умеет ходить по корневым относительным
+            # ссылкам, поэтому везде приходится писать абсолютные ссылки
+            def transform(idx, prefix):
+                if not prefix:
+                    host_port = hdl.request.headers["Host"]
+                    # :KLUDGE: схему тоже нужно от proxy получать
+                    # :TODO: по стандарту Host должен содержать оригинальный порт,
+                    # а не содержит (nginx не передает либо клиент/wget?/браузер в Host не проставляет)
+                    if host_port:
+                        prefix = "http://%s" % host_port
+                
+                if prefix:
+                    url_prefix[idx] = "{0}{1}".format(prefix, url_prefix[idx])
                     
-                    if prefix:
-                        url_prefix[idx] = "{0}{1}".format(prefix, url_prefix[idx])
-                        
-                transform(0, www_stream_link)
-                transform(1, www_dvr_link)
-            else:
-                url_prefix = [url_prefix, url_prefix]
+            transform(0, www_stream_link)
+            transform(1, www_dvr_link)
             wwz_mb_playlist(hdl, asset, False, url_prefix)
             
         def make_wwz_dvr_handler(pattern, get_handler):
@@ -1369,37 +1359,23 @@ def activate_web(sockets):
             ts = api.parse_bl_ts(full_ts)
             return get_handler(hdl, r_t_p, ts, duration, **kwargs)
         
-        if wwz_simplified_links:
-            # /discoverychannel/131113131113.000/60000/360.abst
-            # /discoverychannel/131113131113.000/60000/360/Seg1-FragN
-            def make_dvr_handler(is_pl, get_handler, add_keys):
-                def handler(hdl, asset, full_ts, duration, profile, **kwargs):
-                    kwargs = {k:kwargs[k] for k in add_keys if k in kwargs}
-                    return run_dvr_handler(get_handler, hdl, asset, full_ts, duration, profile, **kwargs)
-                content_prefix = r"(?:data/)?" # ""
-                m_pat = make_link_pattern(r"^/%(c_p)s%(asset)s/%(ts)s/(?P<duration>\d+)/%(profile)s", 
-                                          c_p=content_prefix, ts=api.timestamp_pattern)
-                pattern = r"\.abst" if is_pl else r"/Seg1-Frag(?P<frag_num>\d+)"
-                return make_get_handler(m_pat + pattern, handler)
-            
-            def append_dvr_handler(is_pl, get_handler, add_keys=[]):
-                append_hdl(make_dvr_handler(is_pl, get_handler, add_keys))
-            
-            append_dvr_handler(True, get_playlist_dvr)
-            append_dvr_handler(False, get_hds_dvr, ["frag_num"])
-        else:
-            # :TEMP: удалить, как только станет ясно что wwz_simplified_links работает
-            def make_wwz_dvr_proxy_handler(pattern, get_handler):
-                def handler(hdl, month, day, asset, full_ts, duration, profile, **kwargs):
-                    return run_dvr_handler(get_handler, hdl, asset, full_ts, duration, profile, **kwargs)
-                return make_wwz_dvr_handler(api.timestamp_pattern + r"/(?P<duration>\d+)/" + pattern, handler)
-             
-            handlers.extend([
-                # live/ [ _definst_/ ] 11_07_discoverychannel_576p/123456789000/60000/360.abst
-                make_wwz_dvr_proxy_handler(r"(?P<profile>\w+)\.abst", get_playlist_dvr),
-                # live/ [ _definst_/ ] 11_07_discoverychannel_576p/123456789000/60000/360/Seg1-FragN
-                make_wwz_dvr_proxy_handler(r"(?P<profile>\w+)/Seg1-Frag(?P<frag_num>\d+)", get_hds_dvr),
-            ])
+        # /discoverychannel/131113131113.000/60000/360.abst
+        # /discoverychannel/131113131113.000/60000/360/Seg1-FragN
+        def make_dvr_handler(is_pl, get_handler, add_keys):
+            def handler(hdl, asset, full_ts, duration, profile, **kwargs):
+                kwargs = {k:kwargs[k] for k in add_keys if k in kwargs}
+                return run_dvr_handler(get_handler, hdl, asset, full_ts, duration, profile, **kwargs)
+            content_prefix = r"(?:data/)?" # ""
+            m_pat = make_link_pattern(r"^/%(c_p)s%(asset)s/%(ts)s/(?P<duration>\d+)/%(profile)s", 
+                                      c_p=content_prefix, ts=api.timestamp_pattern)
+            pattern = r"\.abst" if is_pl else r"/Seg1-Frag(?P<frag_num>\d+)"
+            return make_get_handler(m_pat + pattern, handler)
+        
+        def append_dvr_handler(is_pl, get_handler, add_keys=[]):
+            append_hdl(make_dvr_handler(is_pl, get_handler, add_keys))
+        
+        append_dvr_handler(True, get_playlist_dvr)
+        append_dvr_handler(False, get_hds_dvr, ["frag_num"])
         
         class WowzaStaticHandler(static_cls_handler):
             def get(self, asset, path, include_body=True):
