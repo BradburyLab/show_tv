@@ -1255,9 +1255,9 @@ def activate_web(sockets):
         def make_wwz_live_handler(pattern, get_handler):
             return make_get_handler(make_wwz_live_pattern(pattern), get_handler)
         
-        def wwz_mb_live_playlist(hdl, asset):
-            wwz_mb_playlist(hdl, asset, True, None)
-            
+        def wwz_mb_live_playlist(hdl, asset, url_prefix):
+            wwz_mb_playlist(hdl, asset, True, url_prefix)
+
         def wwz_sb_live_playlist(hdl, asset, profile):
             get_playlist_singlebitrate(hdl, asset, profile, "abst")
             
@@ -1302,7 +1302,16 @@ def activate_web(sockets):
                 # :TODO: сделать "live dvr" последнего часа 
                 #start = 0
                 #duration = 86400*1000
-                raise_error(400) # Bad Request
+                #raise_error(400) # Bad Request
+                
+                # редирект на live
+                # :TRICKY: 3XX не работает, так как OSMF запоминает оригинальный url манифеста,
+                # и считает url-ы листов и фрагментов от него (тупица)
+                #hdl.redirect("../smil:%s_sd/manifest.f4m" % asset)
+                # :REFACTOR: расчет ссылок "smil:%s_sd" дважды
+                url = "../smil:%s_sd" % asset
+                wwz_mb_live_playlist(hdl, asset, [url, url])
+                return
                 
             if configuration.local_dvr:
                 # :TRICKY: потому что только для тестов
@@ -1342,7 +1351,7 @@ def activate_web(sockets):
 
         extend_hdls(
             # /live/ [ _definst_/ ] smil:discoverychannel_sd/manifest.f4m
-            make_wwz_live_handler(r"manifest.f4m",           wwz_mb_live_playlist),
+            make_wwz_live_handler(r"manifest.f4m",           functools.partial(wwz_mb_live_playlist, url_prefix=None)), #on_wwz_mb_live_playlist),
             make_wwz_live_handler(r"(?P<profile>\w+)\.abst", wwz_sb_live_playlist),
             
             # DVR
