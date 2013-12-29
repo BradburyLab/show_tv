@@ -337,6 +337,9 @@ def init_cr_start(chunk_range, is_ffmpeg_start):
     if is_ffmpeg_start:
         chunk_range.start_times = []
 
+    chunk_range.dvr_queue = collections.deque()
+    chunk_range.dvr_q_dur = 0
+
 import json
 class WorkerCommand:
     START     = 0
@@ -467,6 +470,15 @@ def is_bitrate_allowed_to_write(r_t_p):
         res = r_t_p.profile in filter_profiles(all_profiles)
     return res
 
+def can_use_dvr(chunk_range):
+    return ( 
+        bool(dvr_host) and
+        chunk_range.end > 1 and
+        is_bitrate_allowed_to_write(chunk_range.r_t_p)
+    )
+
+max_live_dvr_duration = get_cfg_value("live-dvr-duration", 3) * 3600 * 1000
+
 def add_new_chunk(chunk_range, chunk_ts):
     send_worker_command(WorkerCommand.NEW_CHUNK, chunk_range, chunk_ts)
     
@@ -477,26 +489,11 @@ def add_new_chunk(chunk_range, chunk_ts):
 
     chunk_range.start_times.append(chunk_ts)
     chunk_range.end += 1
-
-    if may_serve_pl(chunk_range):
-        hdls = chunk_range.on_first_chunk_handlers
-        chunk_range.on_first_chunk_handlers = []
-        for hdl in hdls:
-            hdl()
-
-    max_total = get_cfg_value('max_total', 72) # максимум столько секунд храним
-    max_cnt = int_ceil(float(max_total) / chunk_dur)
-    diff = ready_chunks(chunk_range) - max_cnt
-
-    r_t_p = chunk_range.r_t_p
-
+    
     # <DVR writer> --------------------------------------------------------
-    if (
-        is_master_proc() and 
-        bool(dvr_host) and
-        chunk_range.end > 1 and
-        is_bitrate_allowed_to_write(r_t_p)
-    ):
+    if can_use_dvr(chunk_range):
+        r_t_p = chunk_range.r_t_p
+        
         # индекс того чанка, который готов
         i = chunk_range.end-2
         start_time = chunk_range.start_times[i-chunk_range.beg]
@@ -514,12 +511,32 @@ def add_new_chunk(chunk_range, chunk_ts):
         else:
             utc_ts = chunk_range.start + start_time
         # длина чанка
-        duration = chunk_duration(i, chunk_range)
-        write_to_dvr(dvr_writer, path_payload, api.dur2millisec(utc_ts), duration, chunk_range)
+        utc_ts   = api.dur2millisec(utc_ts)
+        duration = api.dur2millisec(chunk_duration(i, chunk_range))
+        
+        # :TRICKY: храним именно в этом формате, так как получить от DVR фрагмент
+        # можно именно по utc_ts, а не start_time
+        chunk_range.dvr_queue.append((utc_ts, duration))
+        chunk_range.dvr_q_dur += duration
+        while chunk_range.dvr_q_dur > max_live_dvr_duration:
+            chunk_range.dvr_q_dur -= chunk_range.dvr_queue.popleft()[1]
+        
+        if is_master_proc():
+            write_to_dvr(dvr_writer, path_payload, utc_ts, duration, chunk_range)
 
         # :TRICKY: tornado умеет генерить ссылки только для простых случаев
         #print(global_variables.application.reverse_url("playlist_multibitrate", chunk_range.r_t_p.refname, 1, 1, "f4m"))
     # ------------------------------------------------------- </DVR writer>
+
+    if may_serve_pl(chunk_range):
+        hdls = chunk_range.on_first_chunk_handlers
+        chunk_range.on_first_chunk_handlers = []
+        for hdl in hdls:
+            hdl()
+
+    max_total = get_cfg_value('max_total', 72) # максимум столько секунд храним
+    max_cnt = int_ceil(float(max_total) / chunk_dur)
+    diff = ready_chunks(chunk_range) - max_cnt
 
     if diff > 0:
         old_beg = chunk_range.beg
@@ -689,13 +706,29 @@ def serve_hds_abst(hdl, start_idx, frg_tbl, is_live):
     hdl.write(abst)
     hdl.finish()
 
+import itertools
+
 def serve_hds_pl(hdl, chunk_range):
+    start_idx = chunk_range.beg
     if real_hds_chunking:
         lst = gen_hds.make_frg_tbl(chunk_range.start_times)
+        if hdl.get_argument("with_dvr", default=None) == '1':
+            # :REFACTOR: привести к одному формату получения плейлиста от DVR-сервера + 
+            # одинаковый код с ts2flv() вынести
+            dvr_len = len(chunk_range.dvr_queue) - len(lst)
+            if dvr_len > 0:
+                prefix_lst = [[api.ts2flv(item[0]), ts2sec(item[1])] for item in itertools.islice(chunk_range.dvr_queue, 0, dvr_len)]
+    
+                lst = prefix_lst + lst
+                start_idx -= dvr_len
+                
+                if start_idx < 0:
+                    stream_logger.error("negative base for HDS playlist, %s", start_idx)
+                    start_idx = 0
     else:
         lst = chunk_range.frg_tbl[chunk_range.beg:ready_chk_end(chunk_range)]
 
-    serve_hds_abst(hdl, chunk_range.beg, lst, True)
+    serve_hds_abst(hdl, start_idx, lst, True)
 
 def profile2res(profile):
     res = cfg['res'].get(profile)
@@ -719,7 +752,7 @@ def get_f4m(hdl, refname, ld_type, url_prefix=None):
             def join(idx, url):
                 return "{0}/{1}".format(url_prefix[idx], url)
                 
-            abst_url = join(0, abst_url)
+            abst_url = join(0, abst_url) + "?with_dvr=1" if ld_type == api.LDType.LIVE_DVR else "" 
             seg_url  = join(1, seg_url)
         medias.append(gen_hds.gen_f4m_media(refname, abst_url, profile2res(profile)["bitrate"], seg_url))
     f4m = gen_hds.gen_f4m(refname, ld_type, "\n".join(medias))
@@ -929,6 +962,10 @@ def serve_dvr_chunk(hdl, r_t_p, startstamp, callback=None):
             r_t_p=r_t_p,
             startstamp=startstamp,
         )))
+
+    if not payload:
+        raise_error(410)
+    
     hdl.finish(payload)
 
     if callback:
@@ -1057,6 +1094,14 @@ Fmt2Typ = {
     "f4m":  StreamType.HDS,
 }
 
+def get_web_cr(r_t_p):
+    chunk_range = get_c_r(r_t_p, True)
+
+    if not force_chunking(r_t_p.r_t):
+        # например, из-за сигнала остановить сервер
+        raise_error(503)
+    return chunk_range
+
 def get_playlist_singlebitrate(hdl, asset, profile, extension, startstamp=None, duration=None):
     """ Обработчик выдачи плейлистов playlist.m3u8 и manifest.f4m """
 
@@ -1068,12 +1113,7 @@ def get_playlist_singlebitrate(hdl, asset, profile, extension, startstamp=None, 
         get_playlist_dvr(hdl, r_t_p, startstamp, duration)
         return
 
-    chunk_range = get_c_r(r_t_p, True)
-
-    r_t = r_t_p.r_t
-    if not force_chunking(r_t):
-        # например, из-за сигнала остановить сервер
-        raise_error(503)
+    chunk_range = get_web_cr(r_t_p)
 
     # :TODO: переделать через полиморфизм?
     serve_pl = {
@@ -1086,7 +1126,7 @@ def get_playlist_singlebitrate(hdl, asset, profile, extension, startstamp=None, 
         chunk_range.on_first_chunk_handlers.append(functools.partial(serve_pl, hdl, chunk_range))
 
     if stream_by_request:
-        activity_set.add(r_t)
+        activity_set.add(r_t_p.r_t)
 
 #
 # остановка сервера
@@ -1379,9 +1419,31 @@ def activate_web(sockets):
         append_dvr_handler(False, get_hds_dvr, ["frag_num"])
         
         class WowzaStaticHandler(static_cls_handler):
+            @tornado.web.asynchronous
             def get(self, asset, profile, frag_num, include_body=True):
-                path = "{0}/{1}/Seg1-Frag{2}".format(asset, profile, frag_num)
-                super().get(path, include_body=include_body)
+                r_t_p = r_t_p_key(asset, StreamType.HDS, profile)
+                chunk_range = get_web_cr(r_t_p)
+                
+                i = int(frag_num) - 1
+                if i in written_chunks(chunk_range):
+                    path = "{0}/{1}/Seg1-Frag{2}".format(asset, profile, frag_num)
+                    super().get(path, include_body=include_body)
+                    self.finish()
+                else:
+                    self.write_mode = True
+                    
+                    res = False
+                    if can_use_dvr(chunk_range):
+                        diff = ready_chk_end(chunk_range) - i
+                        dvr_q = chunk_range.dvr_queue
+                        q_len = len(dvr_q)
+                        dvr_idx = q_len - diff
+                        if diff > 0 and dvr_idx >= 0:
+                            res = True
+                            serve_dvr_chunk(self, r_t_p, dvr_q[dvr_idx][0])
+
+                    if not res:
+                        raise_error(404)
                 
         # /live/_definst_/smil:discoverychannel_sd/360/Seg1-Frag22
         append_static_handler(make_wwz_live_pattern(r"(?P<profile>\w+)/Seg1-Frag(?P<frag_num>\d+)"), WowzaStaticHandler)

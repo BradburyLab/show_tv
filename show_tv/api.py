@@ -170,7 +170,7 @@ def utc_dt2ts(dt):
     return calendar.timegm(dt.utctimetuple()) + dt.microsecond / 1000000.
 
 def dur2millisec(duration):
-    return int(duration*1000)
+    return int_ceil(duration*1000)
 
 # принятый в Bradbury стандарт записи дата-времени
 timestamp_pattern = r"(?P<full_ts>(?P<year_base>\d{2})?(?P<startstamp>\d{12})\.(?P<milliseconds>\d{3}))"

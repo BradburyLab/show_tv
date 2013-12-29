@@ -119,8 +119,8 @@ class StaticFileHandler(tornado.web.StaticFileHandler):
         # запрещаем все манипуляции с содержимым контента
         # (собственно cls.get_content() не запретить, потому что это
         # метод класса)
-        # :TODO: если self.write_mode, то может потребоваться прошлое поведение
-        assert False
+        assert self.write_mode
+        return None
     
 def main():
     out_fpath = '/home/muravyev/opt/bl/f451/tmp/test_src'

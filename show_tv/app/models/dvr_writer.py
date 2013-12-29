@@ -21,10 +21,7 @@ def pack_prefix(*args):
 
 logger = logging.getLogger("DVRWriter")
 
-dur2millisec = api.dur2millisec
-
 def make_QLBQ(path_payload, start, duration):
-    duration = dur2millisec(duration)
     payloadlen = os.stat(path_payload).st_size
     is_pvr = True
     
@@ -141,13 +138,14 @@ class WriteCmd:
     DATA = 2
 
 def write_to_dvr(dvr_writer, chunk_fpath, utc_ts, duration, chunk_range):
+    """ Все временные типы здесь - в миллисекундах """
     if configuration.local_dvr:
         dvr_dir = api.rtp2local_dvr(chunk_range.r_t_p, configuration.db_path)
         import o_p
         o_p.force_makedirs(dvr_dir)
         
         import datetime
-        fname = "%s=%s=%s.dvr" % (api.bl_int_ts2bl_str(utc_ts), utc_ts, dur2millisec(duration))
+        fname = "%s=%s=%s.dvr" % (api.bl_int_ts2bl_str(utc_ts), utc_ts, duration)
         import shutil
         shutil.copyfile(chunk_fpath, os.path.join(dvr_dir, fname))
     else:

@@ -57,6 +57,9 @@ logging_level:
 # /live/_definst_/smil:discoverychannel_sd/manifest.f4m ; по умолчанию true
 #wowza-links: true
 
+# (максимальный) размер плейлиста для Live DVR, в часах (актуально для HDS)
+#live-dvr-duration: 3
+
 # куда писать логи, по умолчанию /var/log/451
 #log-path: ~/opt/bl/f451/git/log
 
