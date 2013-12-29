@@ -59,6 +59,14 @@ def asset_name(r_t_p):
     r_t = r_t_p.r_t
     return asset_name_rt(r_t.refname, r_t.typ)
 
+class LDType:
+    LIVE = 0
+    DVR  = 1
+    LIVE_DVR = 2 # гибрид, который умеет только HDS
+
+def is_live2ld_type(is_live):
+    return api.LDType.LIVE if is_live else api.LDType.DVR
+
 DVR_MAGIC_NUMBER = 0x0000f451
 
 # (1) (32s) Имя ассета

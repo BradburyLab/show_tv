@@ -703,14 +703,14 @@ def profile2res(profile):
         raise_error(404, "No such video profile")
     return res
 
-def get_f4m(hdl, refname, is_live, url_prefix=None):
+def get_f4m(hdl, refname, ld_type, url_prefix=None):
     """ url_prefix доп. url для плейлистов и фрагментов """
     # согласно FlashMediaManifestFileFormatSpecification.pdf
     hdl.set_header("Content-Type", "application/f4m+xml")
     # :TRICKY: не нужно вроде
     disable_caching(hdl)
 
-    profiles = get_profiles_by_rt(refname, StreamType.HDS, is_live)
+    profiles = get_profiles_by_rt(refname, StreamType.HDS, ld_type)
     medias = []
     for profile in profiles:
         abst_url = "%s.abst" % profile
@@ -722,7 +722,7 @@ def get_f4m(hdl, refname, is_live, url_prefix=None):
             abst_url = join(0, abst_url)
             seg_url  = join(1, seg_url)
         medias.append(gen_hds.gen_f4m_media(refname, abst_url, profile2res(profile)["bitrate"], seg_url))
-    f4m = gen_hds.gen_f4m(refname, is_live, "\n".join(medias))
+    f4m = gen_hds.gen_f4m(refname, ld_type, "\n".join(medias))
     hdl.write(f4m)
 
 # словарь "имя канала" => адрес входящий адрес вещания
@@ -769,8 +769,9 @@ def get_c_r(r_t_p, raise_404=False):
 
     return c_r
 
-def get_profiles_by_rt(refname, typ, is_live):
+def get_profiles_by_rt(refname, typ, ld_type):
     profiles = get_profiles(RTClass(refname, typ), True).keys()
+    is_live  = ld_type == api.LDType.LIVE
     if not is_live and max_dvr_bitrates:
         profiles = filter_profiles(profiles)
     return profiles
@@ -944,7 +945,7 @@ def check_dvr_pars(startstamp, duration):
     if (startstamp is None) != (duration is None):
         raise_error(400)
 
-def get_mb_playlist(hdl, asset, extension, is_live, url_prefix):
+def get_mb_playlist(hdl, asset, extension, ld_type, url_prefix):
     typ = Fmt2Typ[extension]
     if typ == StreamType.HLS:
         hdl.set_header("Content-Type", "application/vnd.apple.mpegurl")
@@ -954,13 +955,13 @@ def get_mb_playlist(hdl, asset, extension, is_live, url_prefix):
             'app',
             'templates',
         ))
-        profile_bandwitdhs = [[profile, profile2res(profile)["bandwidth"]] for profile in get_profiles_by_rt(asset, StreamType.HLS, is_live)]
+        profile_bandwitdhs = [[profile, profile2res(profile)["bandwidth"]] for profile in get_profiles_by_rt(asset, StreamType.HLS, ld_type)]
         playlist = loader.load('multibitrate/playlist.m3u8').generate(
             profile_bandwitdhs=profile_bandwitdhs,
         )
         hdl.write(playlist)
     elif typ == StreamType.HDS:
-        get_f4m(hdl, asset, is_live, url_prefix)
+        get_f4m(hdl, asset, ld_type, url_prefix)
     else:
         assert False
 
@@ -968,7 +969,7 @@ def get_mb_playlist(hdl, asset, extension, is_live, url_prefix):
 
 def get_playlist_multibitrate(hdl, asset, extension, startstamp=None, duration=None):
     check_dvr_pars(startstamp, duration)
-    get_mb_playlist(hdl, asset, extension, startstamp is None, None)
+    get_mb_playlist(hdl, asset, extension, api.is_live2ld_type(startstamp is None), None)
 
 def ts2sec(ts):
     # хранилка держит timestamp'ы в миллисекундах
@@ -1245,8 +1246,8 @@ def activate_web(sockets):
         def make_wwz_pattern(pattern):
             return r"^/live/(?:_definst_/)?" + pattern
         
-        def wwz_mb_playlist(hdl, asset, is_live, url_prefix):
-            get_mb_playlist(hdl, asset, "f4m", is_live, url_prefix)
+        def wwz_mb_playlist(hdl, asset, ld_type, url_prefix):
+            get_mb_playlist(hdl, asset, "f4m", ld_type, url_prefix)
         
         # live 
         def make_wwz_live_pattern(pattern):
@@ -1255,8 +1256,8 @@ def activate_web(sockets):
         def make_wwz_live_handler(pattern, get_handler):
             return make_get_handler(make_wwz_live_pattern(pattern), get_handler)
         
-        def wwz_mb_live_playlist(hdl, asset, url_prefix):
-            wwz_mb_playlist(hdl, asset, True, url_prefix)
+        def wwz_mb_live_playlist(hdl, asset, url_prefix, is_dvr_live=False):
+            wwz_mb_playlist(hdl, asset, api.LDType.LIVE_DVR if is_dvr_live else api.LDType.LIVE, url_prefix)
 
         def wwz_sb_live_playlist(hdl, asset, profile):
             get_playlist_singlebitrate(hdl, asset, profile, "abst")
@@ -1304,7 +1305,7 @@ def activate_web(sockets):
                 #hdl.redirect("../smil:%s_sd/manifest.f4m" % asset)
                 # :REFACTOR: расчет ссылок "smil:%s_sd" дважды
                 url = "../smil:%s_sd" % asset
-                wwz_mb_live_playlist(hdl, asset, [url, url])
+                wwz_mb_live_playlist(hdl, asset, [url, url], True)
                 return
                 
             if configuration.local_dvr:
@@ -1333,7 +1334,7 @@ def activate_web(sockets):
                     
             transform(0, www_stream_link)
             transform(1, www_dvr_link)
-            wwz_mb_playlist(hdl, asset, False, url_prefix)
+            wwz_mb_playlist(hdl, asset, api.LDType.DVR, url_prefix)
             
         def make_wwz_dvr_handler(pattern, get_handler):
             pattern = make_wwz_pattern(make_link_pattern(r"(?P<month>\d\d)_(?P<day>\d\d)_%(asset)s_(?:\d+)p/") + pattern)
@@ -1378,12 +1379,12 @@ def activate_web(sockets):
         append_dvr_handler(False, get_hds_dvr, ["frag_num"])
         
         class WowzaStaticHandler(static_cls_handler):
-            def get(self, asset, path, include_body=True):
-                path = "{0}/{1}".format(asset, path)
+            def get(self, asset, profile, frag_num, include_body=True):
+                path = "{0}/{1}/Seg1-Frag{2}".format(asset, profile, frag_num)
                 super().get(path, include_body=include_body)
                 
         # /live/_definst_/smil:discoverychannel_sd/360/Seg1-Frag22
-        append_static_handler(make_wwz_live_pattern(r"(?P<path>.*)"), WowzaStaticHandler)
+        append_static_handler(make_wwz_live_pattern(r"(?P<profile>\w+)/Seg1-Frag(?P<frag_num>\d+)"), WowzaStaticHandler)
     else:
         def make_stream_handler(match_pattern, get_handler):
             return make_get_handler(make_link_pattern("^/%(asset)s/") + match_pattern, get_handler)
