@@ -963,8 +963,12 @@ def serve_dvr_chunk(hdl, r_t_p, startstamp, callback=None):
             startstamp=startstamp,
         )))
 
+    # :TRICKY: ни в коем случае не выводить 4XX - плейер
+    # тогда выводит сообщение об ошибке; при 200, 204 и пустом
+    # фрагменте тоже не все гладко - бегунок не отражает реальное
+    # положение, пока несколько раз не загонишь его в крайне правое положение
     if not payload:
-        raise_error(410)
+        raise_error(204)
     
     hdl.finish(payload)
 

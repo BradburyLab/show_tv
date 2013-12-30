@@ -25,7 +25,7 @@ def make_QLBQ(path_payload, start, duration):
     payloadlen = os.stat(path_payload).st_size
     is_pvr = True
     
-    logger.debug('[DVRWriter] => start = {0}'.format(api.bl_int_ts2bl_str(start)))
+    logger.debug('[DVRWriter] => start = {0}, {1}'.format(api.bl_int_ts2bl_str(start), start))
     logger.debug('[DVRWriter] => duration = {0}'.format(duration))
     logger.debug('[DVRWriter] => is_pvr = {0}'.format(is_pvr))
     logger.debug('[DVRWriter] => payloadlen = {0}'.format(payloadlen))
@@ -139,6 +139,7 @@ class WriteCmd:
 
 def write_to_dvr(dvr_writer, chunk_fpath, utc_ts, duration, chunk_range):
     """ Все временные типы здесь - в миллисекундах """
+    res = True
     if configuration.local_dvr:
         dvr_dir = api.rtp2local_dvr(chunk_range.r_t_p, configuration.db_path)
         import o_p
@@ -184,4 +185,6 @@ def write_to_dvr(dvr_writer, chunk_fpath, utc_ts, duration, chunk_range):
                     chunk_fpath=chunk_fpath,
                 )
                     
-        api.connect_to_dvr(obj, (dvr_writer.host, dvr_writer.port), write_func)
+        res = api.connect_to_dvr(obj, (dvr_writer.host, dvr_writer.port), write_func)
+        
+    return res

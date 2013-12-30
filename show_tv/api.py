@@ -244,6 +244,8 @@ class StreamState:
 dvr_wlogger = logging.getLogger("DVRWriter")
 
 def connect_to_dvr(obj, addr, write_func):
+    res = False
+    
     dvr_ctx = getattr(obj, "dvr_ctx", None)
     if not dvr_ctx:
         obj.dvr_ctx = dvr_ctx = make_struct(state=StreamState.CLOSED)
@@ -280,6 +282,8 @@ def connect_to_dvr(obj, addr, write_func):
                 write_func(dvr_ctx.stream, dvr_ctx.is_first)
             except:
                 dvr_wlogger.error("DVR Writer Exception", exc_info=1)
+            else:
+                res = True
                 
             dvr_wlogger.debug('[DVRWriter] write finish <<<<<<<<<<<<<<\n')
             
@@ -287,6 +291,8 @@ def connect_to_dvr(obj, addr, write_func):
             check_stream()
         else:
             start_connection()
+            
+    return res
 
 def calc_from_stream_range(full_lst, stream_range):
     stream_lst = []
