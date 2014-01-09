@@ -752,8 +752,10 @@ def get_f4m(hdl, refname, ld_type, url_prefix=None):
             def join(idx, url):
                 return "{0}/{1}".format(url_prefix[idx], url)
                 
-            abst_url = join(0, abst_url) + "?with_dvr=1" if ld_type == api.LDType.LIVE_DVR else "" 
+            abst_url = join(0, abst_url)
             seg_url  = join(1, seg_url)
+        if ld_type == api.LDType.LIVE_DVR:
+            abst_url += "?with_dvr=1"
         medias.append(gen_hds.gen_f4m_media(refname, abst_url, profile2res(profile)["bitrate"], seg_url))
     f4m = gen_hds.gen_f4m(refname, ld_type, "\n".join(medias))
     hdl.write(f4m)

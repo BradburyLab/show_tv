@@ -4,7 +4,7 @@ ffmpeg-bin: ~/opt/src/ffmpeg/git/ffmpeg/objs/inst/bin/ffmpeg
 dvr-host: 127.0.0.1 # 172.16.0.134 # null # 
 # добавлять в начале пакета 0x0000f451 для проверки синхронизации
 #insert_dvr_magic_number: true
-#local_dvr: true
+local_dvr: true
 #max-dvr-bitrates: 0
 #live-dvr-duration: 0
 
