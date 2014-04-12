@@ -11,10 +11,12 @@ dvr-host: 127.0.0.1
 # (сделать по умолчанию false, когда выйдет в production)
 is_test: true
 
-# вещать все каналы из конфига udp-source.yaml, по умолчанию true;
-# если false, то вещание идет "по требованию", со списком постоянно
-# вещаемых каналов stream-always-lst
-stream_all_channels: false
+# если true, то вещание идет "по требованию", по умолчанию false;
+#stream_by_request: false
+
+# вещать все каналы из конфига udp-source.yaml, если не stream_by_request,
+# по умолчанию false; список stream-always-lst игнорируется
+#stream_all_channels: false
 
 # уровни логирования
 logging_level:

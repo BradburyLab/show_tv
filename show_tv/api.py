@@ -43,14 +43,20 @@ def asset_name(r_t_b):
 
 DVR_MAGIC_NUMBER = 0x0000f451
 
-# (0) (L) DVR_MAGIC_NUMBER
 # (1) (32s) Имя ассета
 # (2) (L) Битрейт
 # (3) (Q) Время начала чанка
 # (4) (L) Длительность чанка в мс (int),
 # (5) (B) Это PVR?
 # (6) (L) Длина payload
-DVR_PREFIX_FMT = "=L32sLQLBL"
+DVR_PREFIX_FMT = "32sLQLBL"
+
+def make_dvr_prefix_format(insert_dvr_magic_number):
+    # (0) (L) DVR_MAGIC_NUMBER
+    c = "L" if insert_dvr_magic_number else ""
+        
+    # little-endian правильней, чем "=" = native, ящетаю
+    return "<{0}{1}".format(c, DVR_PREFIX_FMT)
 
 from lib.log import Formatter
 import logging
@@ -76,3 +82,22 @@ def setup_logger(logger, fpath, logging_level):
     logger.setLevel(logging_level)
     setup_console_logger(logger, logging_level)
     setup_file_logger(fpath, logging_level, logger)
+
+
+import datetime
+
+def utcnow():
+    return datetime.datetime.utcnow()
+
+def ts2str(ts):
+    """Формат передачи timestamp - строка в ISO 8601 (в UTC)"""
+    res = ""
+    if ts:
+        # если нет tzinfo, то Py ничего не добавляет, а по стандарту надо
+        suffix = "" if ts.tzinfo else "Z"
+        res = ts.isoformat() + suffix
+    return res
+
+def utcnow_str():
+    return ts2str(utcnow())
+

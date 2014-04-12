@@ -153,12 +153,12 @@ def run_chunker(src_media_path, typ, chunk_dir, on_new_chunk, on_stop_chunking, 
         ffmpeg_bin += " -v debug"
         chunk_options = "-codec copy -map 0 -f ssegment -segment_time %s" % std_chunk_dur
     else:
-        if stream_all_channels:
+        if stream_by_request:
+            chunk_options = "-vcodec copy -strict experimental -c:a aac -ac 2 -ar 44100" 
+        else:
             # :TRICKY: ради нагрузочного тестирования отключаем перекодирование, пускай даже
             # звука и не будет
             chunk_options = "-codec copy -bsf:a aac_adtstoasc"
-        else:
-            chunk_options = "-vcodec copy -strict experimental -c:a aac -ac 2 -ar 44100" 
         chunk_options += " -f hds -hds_time %s" % std_chunk_dur
     cmd = "%(ffmpeg_bin)s %(in_opts)s %(chunk_options)s" % locals()
     if is_test:
@@ -805,7 +805,7 @@ def get_playlist_singlebitrate(hdl, asset, bitrate, extension, startstamp=None, 
     else:
         chunk_range.on_first_chunk_handlers.append(functools.partial(serve_pl, hdl, chunk_range))
 
-    if not stream_all_channels:
+    if stream_by_request:
         activity_set.add(r_t)
 
 #
@@ -848,13 +848,12 @@ def on_signal(_signum, _ignored_):
 #
 
 
-stream_all_channels = get_cfg_value("stream_all_channels", True)
+stream_by_request = get_cfg_value("stream_by_request", False)
+stream_always_lst = get_cfg_value("stream-always-lst", ['pervyj'])
 
-if not stream_all_channels:
+if stream_by_request:
     # список вещаемых каналов типа RTClass = (refname, typ) прямо сейчас 
     activity_set = set()
-    
-    stream_always_lst = get_cfg_value("stream-always-lst", ['pervyj'])
     
     def stop_inactives():
         """ Прекратить вещание каналов, которые никто не смотрит в течении STOP_PERIOD=10 минут """
@@ -905,11 +904,10 @@ def main():
     hard_limit = resource.getrlimit(resource.RLIMIT_NOFILE)[1]
     resource.setrlimit(resource.RLIMIT_NOFILE, (hard_limit, hard_limit))
 
-    if stream_all_channels:
+    if not stream_by_request and get_cfg_value("stream_all_channels", False):
         refnames = refname2address_dictionary.keys()
     else:
         refnames = stream_always_lst
-        set_stop_timer()
         
     for i, refname in enumerate(refnames):
         # эмуляция большого запуска для разработчика - не грузим сильно машину
@@ -923,6 +921,9 @@ def main():
             use_hds = get_cfg_value("use_hds", False)
             if use_hds or (typ != StreamType.HDS):
                 force_chunking(RTClass(refname, typ))
+
+    if stream_by_request:
+        set_stop_timer()
 
     for sig in [signal.SIGTERM, signal.SIGINT]:
         signal.signal(sig, on_signal)
@@ -961,7 +962,41 @@ def main():
     global_variables.application = application
 
     log_status("Starting IOLoop...")
-    IOLoop.start()
+    if get_cfg_value("do_profiling", False):
+        #from profile import Profile
+        from cProfile import Profile
+        prof = Profile()
+
+        orig_impl = IOLoop._impl
+        orig_poll = orig_impl.poll
+        
+        def poll_wrapper(*args, **kw):
+            prof.disable()
+            try:
+                return orig_poll(*args, **kw)
+            finally:
+                prof.enable()
+        
+        class Proxy:
+            def __init__(self, obj):
+                self.obj = obj
+                
+            def __getattr__(self, attr_name):
+                attr = poll_wrapper if attr_name == "poll" else getattr(self.obj, attr_name)
+                return attr
+        
+        IOLoop._impl = Proxy(orig_impl)
+        
+        # по аналогии с runcall()
+        prof.enable()
+        
+        IOLoop.start()
+        
+        prof.disable()
+        fstats = o_p.join(cfg['path_log'], "stream-{0}.{1}".format(api.utcnow_str(), "py_stats"))
+        prof.dump_stats(fstats)        
+    else:
+        IOLoop.start()
     
 if __name__ == "__main__":
     main()

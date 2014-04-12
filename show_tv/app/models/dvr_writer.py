@@ -7,9 +7,16 @@ from tornado import gen
 
 from .dvr_base import DVRBase
 
-# import configuration
+import configuration
 import api
 from sendfile import sendfile
+
+insert_dvr_magic_number = configuration.get_cfg_value("insert_dvr_magic_number", False)
+
+def pack_prefix(*args):
+    if insert_dvr_magic_number:
+        args = (api.DVR_MAGIC_NUMBER,) + args
+    return struct.pack(api.make_dvr_prefix_format(insert_dvr_magic_number), *args)
 
 class DVRWriter(DVRBase):
     def __init__(self, cfg, host='127.0.0.1', port=6451, use_sendfile=False):
@@ -55,10 +62,7 @@ class DVRWriter(DVRBase):
         self.l.debug('[DVRWriter] => payloadlen = {0}'.format(payloadlen))
         self.l.debug('[DVRWriter] => path_payload = {0}'.format(path_payload))
 
-        pack = struct.pack(
-            api.DVR_PREFIX_FMT,
-            # (0) (L) DVR_MAGIC_NUMBER
-            api.DVR_MAGIC_NUMBER,
+        pack = pack_prefix(
             # (1) (32s) Имя ассета
             name,
             # (2) (L) Битрейт
