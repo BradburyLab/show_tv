@@ -40,4 +40,3 @@ def asset_name_rt(refname, typ):
 
 def asset_name(r_t_b):
     return asset_name_rt(r_t_b.refname, r_t_b.typ)
-

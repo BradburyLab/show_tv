@@ -1,6 +1,6 @@
-#port: 8910
 db-path:    ~/opt/bl/f451/tmp/out_dir
 ffmpeg-bin: ~/opt/src/ffmpeg/git/ffmpeg/objs/inst/bin/ffmpeg
+dvr-host: null # 127.0.0.1 # 
 
 logging_level:
   tornado.access: INFO
@@ -16,13 +16,11 @@ logging_level:
 
 is_test: true
 #emulate_live: true
-
-dvr-host: null # 127.0.0.1 # 
 #use_sendfile: true
 
-max_total: 72
 multibitrate_testing: false
 
 stream-always-lst:
   - pervyj
 
+stream_all_channels: false

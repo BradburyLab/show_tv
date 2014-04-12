@@ -145,6 +145,17 @@ def make_tcp_server(handle_stream):
     # больших чтениях
     return Server(max_buffer_size=404857600)
 
+def start_tcp_server(handle_stream, port):
+    server = make_tcp_server(handle_stream)
+    server.listen(port)
+        
+    def handle_signal(sig, frame):
+        io_loop.add_callback(io_loop.stop)
+    
+    import signal
+    for sig in [signal.SIGINT, signal.SIGTERM]:
+        signal.signal(sig, handle_signal)
+
 def do_server():
     if is_checked_io:
         @gen.engine
@@ -176,15 +187,7 @@ def do_server():
                 
             stream.read_until_close(handle_read, handle_read)
     
-    server = make_tcp_server(handle_stream)
-    server.listen(PORT)
-        
-    def handle_signal(sig, frame):
-        io_loop.add_callback(io_loop.stop)
-    
-    import signal
-    for sig in [signal.SIGINT, signal.SIGTERM]:
-        signal.signal(sig, handle_signal)
+    start_tcp_server(handle_stream, PORT)
         
 if __name__ == '__main__':
     is_client = len(sys.argv) > 1

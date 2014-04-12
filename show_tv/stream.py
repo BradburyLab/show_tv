@@ -141,7 +141,7 @@ def run_chunker(src_media_path, typ, chunk_dir, on_new_chunk, on_stop_chunking, 
 
     # ffmpeg_bin = environment.ffmpeg_bin
     ffmpeg_bin = os.path.expanduser(cfg['live']['ffmpeg-bin'])
-    
+
     # :TRICKY: так отлавливаем сообщение от segment.c вида "starts with packet stream"
     in_opts = "-i " + src_media_path
     if emulate_live() and not is_batch:
@@ -153,8 +153,12 @@ def run_chunker(src_media_path, typ, chunk_dir, on_new_chunk, on_stop_chunking, 
         ffmpeg_bin += " -v debug"
         chunk_options = "-codec copy -map 0 -f ssegment -segment_time %s" % std_chunk_dur
     else:
-        #chunk_options = "-codec copy -bsf:a aac_adtstoasc"
-        chunk_options = "-vcodec copy -strict experimental -c:a aac -ac 2 -ar 44100"
+        if stream_all_channels:
+            # :TRICKY: ради нагрузочного тестирования отключаем перекодирование, пускай даже
+            # звука и не будет
+            chunk_options = "-codec copy -bsf:a aac_adtstoasc"
+        else:
+            chunk_options = "-vcodec copy -strict experimental -c:a aac -ac 2 -ar 44100" 
         chunk_options += " -f hds -hds_time %s" % std_chunk_dur
     cmd = "%(ffmpeg_bin)s %(in_opts)s %(chunk_options)s" % locals()
     if is_test:
@@ -166,7 +170,7 @@ def run_chunker(src_media_path, typ, chunk_dir, on_new_chunk, on_stop_chunking, 
     #print(cmd)
 
     Subprocess = tornado.process.Subprocess
-
+    
     STREAM = Subprocess.STREAM
     ffmpeg_proc = Subprocess(cmd, stdout=STREAM, stderr=STREAM, shell=True)
     segment_sign = api.segment_sign
@@ -261,6 +265,8 @@ def start_chunking(chunk_range):
     else:
         start_ffmpeg_chunking(chunk_range)
 
+stream_logger = logging.getLogger('stream')
+        
 def do_stop_chunking(chunk_range):
     """ Функция, которую нужно выполнить по окончанию вещания (когда закончил
         работу chunker=ffmpeg """
@@ -270,6 +276,9 @@ def do_stop_chunking(chunk_range):
     may_restart = not chunk_range.stop_signal
     if chunk_range.stop_signal:
         chunk_range.stop_signal = False
+    else:
+        # обычно это означает, что ffmpeg не хочет работать сразу
+        stream_logger.warning("Chunking has been stopped unexpectedly: %s", chunk_range)
 
     if global_variables.stop_streaming:
         stop_lst = global_variables.stop_lst
@@ -309,8 +318,7 @@ def start_ffmpeg_chunking(chunk_range):
             for hdl in hdls:
                 hdl()
 
-        # максимум столько секунд храним
-        max_total = cfg['live']['max_total']
+        max_total = get_cfg_value('max_total', 72) # максимум столько секунд храним
         max_cnt = int_ceil(float(max_total) / std_chunk_dur)
         diff = ready_chunks(chunk_range) - max_cnt
 
@@ -605,9 +613,6 @@ def r_t_iter(iteratable):
         for typ in enum_values(StreamType):
             yield RTClass(refname, typ)
 
-# список вещаемых каналов типа RTClass = (refname, typ) прямо сейчас
-activity_set = set()
-
 def raise_error(status):
     raise tornado.web.HTTPError(status)
 
@@ -800,7 +805,8 @@ def get_playlist_singlebitrate(hdl, asset, bitrate, extension, startstamp=None, 
     else:
         chunk_range.on_first_chunk_handlers.append(functools.partial(serve_pl, hdl, chunk_range))
 
-    activity_set.add(r_t)
+    if not stream_all_channels:
+        activity_set.add(r_t)
 
 #
 # остановка сервера
@@ -841,60 +847,76 @@ def on_signal(_signum, _ignored_):
 # вещание по запросу
 #
 
-stream_always_lst = get_cfg_value("stream_always_lst", ['pervyj'])
 
-def stop_inactives():
-    """ Прекратить вещание каналов, которые никто не смотрит в течении STOP_PERIOD=10 минут """
+stream_all_channels = get_cfg_value("stream_all_channels", True)
 
-    #for r_t_b, cr in chunk_range_dictionary.items():
-        #if cr.is_started and r_t_b not in activity_set and r_t_b.refname not in stream_always_lst:
-            #print("Stopping inactive:", r_t_b)
-            #kill_cr(cr)
-    for r_t in r_t_iter(refname2address_dictionary):
-        is_started = False
-        for c_r in for_all_resolutions(r_t):
-            if c_r.is_started:
-                is_started = True
-                break
-
-        if is_started and r_t not in activity_set and r_t.refname not in stream_always_lst:
-            print("Stopping inactive:", r_t)
+if not stream_all_channels:
+    # список вещаемых каналов типа RTClass = (refname, typ) прямо сейчас 
+    activity_set = set()
+    
+    stream_always_lst = get_cfg_value("stream_always_lst", ['pervyj'])
+    
+    def stop_inactives():
+        """ Прекратить вещание каналов, которые никто не смотрит в течении STOP_PERIOD=10 минут """
+        
+        #for r_t_b, cr in chunk_range_dictionary.items():
+            #if cr.is_started and r_t_b not in activity_set and r_t_b.refname not in stream_always_lst:
+                #print("Stopping inactive:", r_t_b)
+                #kill_cr(cr)
+        for r_t in r_t_iter(refname2address_dictionary):
+            is_started = False
             for c_r in for_all_resolutions(r_t):
-                try_kill_cr(c_r)
-
-    activity_set.clear()
-    set_stop_timer()
-
-# 10 минут
-STOP_PERIOD = 600
-def set_stop_timer():
-    period = datetime.timedelta(seconds=STOP_PERIOD)
-    IOLoop.add_timeout(period, stop_inactives)
+                if c_r.is_started:
+                    is_started = True
+                    break
+            
+            if is_started and r_t not in activity_set and r_t.refname not in stream_always_lst:
+                print("Stopping inactive:", r_t)
+                for c_r in for_all_resolutions(r_t):
+                    try_kill_cr(c_r)
+                
+        activity_set.clear()
+        set_stop_timer()
+    
+    STOP_PERIOD = 600 # 10 минут
+    def set_stop_timer():
+        period = datetime.timedelta(seconds=STOP_PERIOD)
+        IOLoop.add_timeout(period, stop_inactives)
 
 def main():
-    logger = logging.getLogger('stream')
     # :TODO: поменять порт по умолчанию на 8451 (или 9451?), как написано
     # в документации
     port = get_cfg_value("port", 8910)
-    logger.info(
+    stream_logger.info(
         '\n'
         'Fahrenheit 451 mediaserver. Frontend OTT server.\n'
         'Copyright Bradbury Lab, 2013\n'
         'Listens at 0.0.0.0:{0}\n'
         .format(port)
     )
-            
-    for refname in stream_always_lst:
+
+    if stream_all_channels:
+        refnames = refname2address_dictionary.keys()
+    else:
+        refnames = stream_always_lst
+        set_stop_timer()
+        
+    for i, refname in enumerate(refnames):
+        # эмуляция большого запуска для разработчика - не грузим сильно машину
+        # :TRICKY: вещание всех каналов (132) в 6 битрейтах (3*HLS + 3*HDS) у меня (Муравьев) уже не влезает по памяти (8Gb),
+        # поэтому только первые 80 (а с 4Gb - только 30 без тормозов)
+        if is_test and i >= 30:
+            break
+        
         for typ in enum_values(StreamType):
             # :TODO: по умолчанию HDS пока не готово
             use_hds = get_cfg_value("use_hds", False)
             if use_hds or (typ != StreamType.HDS):
                 force_chunking(RTClass(refname, typ))
-             
+
     for sig in [signal.SIGTERM, signal.SIGINT]:
         signal.signal(sig, on_signal)
-    set_stop_timer()
-
+    
     # обработчики
     handlers = [
         # :TODO: нужна проверка существования канала такая же, что и в get_playlist()
@@ -928,19 +950,8 @@ def main():
     application.listen(port)
     global_variables.application = application
 
+    stream_logger.info("Starting IOLoop...")
     IOLoop.start()
-
-def get_channel_addr(req_channel):
-    rn_dct, names_dct = get_channels()
-
-    res = names_dct.get(req_channel)
-    if res:
-        res = rn_dct[res]
-    return res
-
+    
 if __name__ == "__main__":
-    if True:
-        main()
-
-    if False:
-        print(get_channel_addr("Первый канал"))
+    main()

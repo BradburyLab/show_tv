@@ -11,11 +11,6 @@ from .dvr_base import DVRBase
 import api
 from sendfile import sendfile
 
-# use_sendfile = configuration.use_sendfile
-# if use_sendfile:
-#     from sendfile import sendfile
-
-
 class DVRWriter(DVRBase):
     def __init__(self, cfg, host='127.0.0.1', port=6451, use_sendfile=False):
         super().__init__(cfg, host, port, use_sendfile)
@@ -87,6 +82,12 @@ class DVRWriter(DVRBase):
         else:
             with open(path_payload, 'rb') as f:
                 self.c.write(f.read())
+            
+        queue = self.c.ws_buffer if self.use_sendfile else self.c._write_buffer
+        q_len = len(queue)
+        if q_len > 100:
+            self.l.warning("Write queue is too big, %s", q_len)
+        
         self.l.debug('[DVRWriter] write finish <<<<<<<<<<<<<<<\n')
 
         # fd = os.open(path_payload, os.O_RDONLY)

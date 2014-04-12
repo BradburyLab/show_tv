@@ -1,0 +1,189 @@
+# куда записывать чанки для live
+db-path: /vagrant/f451/tmp/live
+# путь до ffmpeg=нарезателя чанков
+ffmpeg-bin: /home/vany/ffmpeg/objs/inst/bin/ffmpeg
+# адрес сервера DVR; если пусто или null, то DVR не пишется
+dvr-host: 127.0.0.1
+# работа в тестовом/нет режиме (для разработчиков)
+# (сделать по умолчанию false, когда выйдет в production)
+is_test: true
+
+# вещать все каналы из конфига udp-source.yaml, по умолчанию true;
+# если false, то вещание идет "по требованию", со списком постоянно
+# вещаемых каналов stream-always-lst
+stream_all_channels: false
+
+# уровни логирования
+logging_level:
+  tornado.access: INFO
+  tornado.application: INFO
+  stream: INFO
+  DVRReader: INFO
+  DVRWriter: INFO
+
+########################### 
+# Недокументированные опции
+
+version: 0.01
+port: 8910
+environment: development
+
+definitions:
+  360:
+    bitrate: 300000
+    bandwidth: 500000
+    out_number: 3
+  576:
+    bitrate: 500000
+    bandwidth: 900000
+    out_number: 2
+  720:
+    bitrate: 1400000
+    bandwidth: 1300000
+    out_number: 1
+
+max_total: 72
+use_sendfile: false
+use_hds: false
+real_hds_chunking: true
+multibitrate_testing: true
+emulate_live: true
+do_write_dvr: true
+
+################### 
+# stream-always-lst
+
+# по умолчанию равен ['pervyj']
+stream-always-lst:
+  # - 24techno
+  # - 365dney
+  # - 8kanal
+  # - abmoteurs
+  # - amazinglife
+  # - amedia
+  # - animalplanet
+  # - aone
+  # - arrirang
+  # - avtoplus
+  # - babytv
+  # - bluehastler
+  # - bojec
+  # - boomerang
+  # - boycovskiyclub
+  # - cartoon
+  # - detskiy
+  # - deutschewelle
+  # - discoverychannel
+  # - discoveryinvestigations
+  # - discoveryscience
+  # - discoveryworld
+  # - dojd
+  # - domashniezhivotnye
+  # - drive
+  # - englishclub
+  # - eronews
+  # - erosport
+  # - eurokino
+  # - europaplustv
+  # - eurosport
+  # - eurosporthd
+  # - eurosportnews
+  # - fashiontv
+  # - fenixkino
+  # - footbol
+  # - france24
+  # - galaxy
+  # - gulli
+  # - hctv
+  # - illusionplus
+  # - invamedia
+  # - karusel
+  # - khl
+  # - kidsco
+  # - komedijatv
+  # - kp
+  # - ktoestkto
+  # - kuhnjatv
+  # - ljaminor
+  # - matditya
+  # - mcmtop
+  # - mezzo
+  # - mgm
+  # - mir
+  # - mir24
+  # - mojaplaneta
+  # - mtvdance
+  # - mtvhits
+  # - mtvrocks
+  # - multimany
+  # - musicboxru
+  # - musicboxrv
+  # - natgeowild
+  # - nauka2.0
+  # - ngc
+  # - nhkworldtv
+  # - nickJ
+  # - nickelodeion
+  # - nostalgia
+  # - ntv
+  # - o2molodo
+  # - oceantv
+  # - octtb
+  # - ohotairybalka
+  # - olimptv
+  # - oruzhie
+  # - otr
+  # - outdoorchannel
+  # - outdoorhd
+  # - park
+  # - pervyiobrazovatelniyi
+  - pervyj
+  # - peterburg5
+  # - playboy
+  # - prihologija21
+  # - prosveshenie
+  # - radostmoya
+  # - raztv
+  # - rbktv
+  # - retrotv
+  # - rossia1
+  # - rossia2
+  # - rossia24
+  # - rossijak
+  # - rusillusion
+  # - rusongtv
+  # - russiatoday
+  # - russkijextrim
+  # - russkiyroman
+  # - rutv
+  # - rysskayanoch
+  # - shansontv
+  # - soyuz
+  # - spas
+  # - sport1
+  # - sport1hd
+  # - sport2
+  # - strana
+  # - styletv
+  # - tdk
+  # - teleputeshestviya
+  # - tiji
+  # - tlc
+  # - tnvplaneta
+  # - tpo
+  # - travel
+  # - travelhd
+  # - tvxxivek
+  # - usadba
+  # - vh1classic
+  # - vh1european
+  # - voprosyiotvety
+  # - vsetv
+  # - xxl
+  # - ymortv
+  # - yspeh
+  # - zakontv
+  # - zdorovoetv
+  # - zeetv
+  # - zhivi
+  # - zoopark

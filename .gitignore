@@ -24,4 +24,3 @@ __*
 #config/**/*.yaml
 #!config/**/example*
 !config/.keep
-
